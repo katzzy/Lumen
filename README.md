@@ -1,141 +1,158 @@
-# Lumen Terminal 1.1.11
+# Lumen Terminal 开发报告（v1.1.12）
 
-面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
+> 这份文档是给项目维护者的工程状态报告，不是公开发布宣传页。
+> 记录当前实现、两轮审查后的修复、性能数据、验证结果和仍然存在的问题。
 
-![Lumen Terminal](screenshot.png)
+## 1. 当前状态
 
-## 为什么是 Lumen
+- 版本：`1.1.12`
+- 目标：Windows 原生串口控制台，仅串口；不包含 SSH/Telnet/Web 技术
+- 技术栈：C# / .NET 10 / WPF，终端自绘，串口直接调用 Win32 API
+- 构建：0 错误，Analyzer 0 警告
+- 自检：17 项全部通过
+- 发布：只保留当前 v1.1.12 Release；历史 Release 已按维护要求清空
+- 仓库：`main` 与 `origin/main` 同步，提交/tag 已签名
 
-- **串口优先**：COM 口枚举（含 USB 描述）、波特率/数据位/校验/停止位/流控、DTR/RTS、**Send Break**（交换机进 ROMMON / 密码恢复）。
-- **粘贴不丢字符**：每行可配置延迟（默认 100ms），9600 波特率下粘贴整段配置也不会丢；危险命令（`erase` / `reload` / `write erase` 等）二次确认。
-- **日志留痕**：连接即自动记录（可关闭），可选每行时间戳，按会话与时间命名；一键打开日志目录。
-- **运维细节**：连接后自动发送命令（如 `terminal length 0`）、快捷命令按钮、按站点/机房分组、搜索回滚、查找高亮、GBK/UTF-8 编码。
-- **现代界面**：深色 Fluent 风格、自定义标题栏、标签页、自绘终端网格、等宽字体、清晰的中文回退。
-- **缩放不丢内容**：窗口变窄/变高时按新宽度重排可见终端与最近回滚，不会截断正在查看的输出。
-- **单实例保护**：默认只允许一个 Lumen 实例，避免两个进程同时保存会话文件时互相覆盖。
-- **原生且轻**：单文件夹、免安装运行时（self-contained），可放在 U 盘里带走。
+## 2. 主要修复记录
 
-## 厂商适配
+### P1：正确性与可靠性
 
-内置 13 家厂商模板，新建/编辑会话时选择厂商即可带出默认波特率、编码、分页命令和快捷命令；也可以在连接后根据设备启动信息自动识别。
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 窗口缩放丢内容 | 完成 | 可见屏幕 + 最近回滚立即重排；完整 scrollback 后台快照重排，版本校验失败会重试 |
+| Dispose/连接竞态 | 完成 | `Dispose` 置 `IsConnected=false`；连接/发送/断开路径均有 `_disposed` 守卫 |
+| 多实例覆盖会话 | 完成 | 命名 Mutex 单实例；第二次启动激活已有窗口 |
+| 快捷命令发错会话 | 完成 | 确认前捕获目标 Tab，确认后只操作该会话 |
+| 反色背景错误 | 完成 | 背景与文字统一走 `ResolveColors`，普通背景有快速路径 |
 
-| 厂商 | 默认串口 | 自动关闭分页 | 编码 |
-|---|---|---|---|
-| Cisco IOS / IOS-XE | 9600 8N1 | `terminal length 0` | UTF-8 |
-| 华为 VRP | 9600 8N1 | `screen-length 0 temporary` | GBK |
-| H3C Comware | 9600 8N1 | `screen-length disable` | GBK |
-| 中兴 ZXR10 | 9600 8N1 | `terminal length 0` | GBK |
-| 锐捷 RGOS | 9600 8N1 | `terminal length 0` | GBK |
-| 迈普 MyPower | 9600 8N1 | `terminal length 0` | GBK |
-| TP-Link JetStream | 9600 8N1 | `terminal length 0` | GBK |
-| Juniper Junos | 9600 8N1 | `set cli screen-length 0` | UTF-8 |
-| Arista EOS | 9600 8N1 | `terminal length 0` | UTF-8 |
-| Aruba / HPE | 9600 8N1 | `no page` | UTF-8 |
-| Dell OS10 / OS9 | 9600 8N1 | `terminal length 0` | UTF-8 |
-| Extreme EXOS | 9600 8N1 | `disable clipaging` | UTF-8 |
-| MikroTik RouterOS | 115200 8N1 | 不发送 | UTF-8 |
+### P2：重要功能与性能
 
-- **自动识别**：连接后读取设备 Banner，识别到厂商后自动切换编码、应用快捷命令，并在首次出现登录提示符后发送分页命令。
-- **手动选择**：如果设备启动时没有 Banner（例如已经登录），在会话编辑器的「厂商」里选择对应模板，点「套用厂商模板」即可。
-- **通用 VT100**：不属于以上厂商时选「通用」，不会自动发送任何命令。
-- 分页命令与中文编码以设备手册和实际输出为准；国产设备中文乱码时优先切 GBK。
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 长粘贴无法取消 | 完成 | 粘贴中按 `Esc` 取消，状态栏显示完成/取消 |
+| 模态窗口快捷键 | 完成 | Overlay 可见时屏蔽全局快捷键 |
+| 标签溢出 | 完成 | 标签栏支持滚轮横向滚动 |
+| 日志写盘阻塞 UI | 完成 | bounded channel + 后台 worker；Tab 关闭异步落盘，退出时等待 pending log |
+| CJK/emoji 搜索 | 完成 | 按 cell 映射高亮，emoji 不被替换为空格 |
+| FindNext O(n²) | 完成 | 匹配项按行建索引，渲染不再全表扫描 |
+| 画刷缓存 | 完成 | 有上限，批量淘汰；`FormattedText` 复用 |
+| 快速连接换波特率 | 完成 | 同端口已打开时提示先关闭，不再静默激活旧波特率 |
+| 编辑已打开会话 | 完成 | 同步快捷命令、粘贴延迟、日志目录、初始化命令等 |
+| README 日志目录 | 完成 | 工具栏“日志目录”直接打开 |
+| 手动重连 | 完成 | 工具栏“重连”；自动重连按要求不做 |
+| 蓝牙串口标记 | 完成 | 串口下拉显示 `BT`，提示中显示“蓝牙” |
+| 串口写入 0 字节 | 完成 | 抛出 `SerialException` 并触发断开 |
+| 测试 | 完成 | `tests/Lumen.Tests`，17 项自检 |
+| UIAutomation | 完成 | Document + TextPattern，可读取终端文本；选区 API 仍有限 |
+| GitHub Actions | 未做 | 按要求暂时忽略 |
 
+### P3：质量与架构
 
-## 快速开始
+- 死代码清理：移除未使用设置、事件、方法和浅色调色板
+- 大文件拆分：
+  - `MainWindow` → `Tabs` / `Sessions` / `Actions`
+  - `TerminalView` → `Rendering` / `Selection`
+- 关键失败路径写入 crash log（终端解析、日志启停、会话/设置读写）
+- `.editorconfig` 处理 Intentional 规则，Analyzer 0 警告
+- 全项目 `dotnet format`
+- MIT LICENSE 已加入并打包
+- 首次启动会话列表为空，不再绑定 COM3/COM4
+- Auto 会话不再默认带 Cisco 快捷命令
+- README 增加日志敏感信息提醒
 
-1. 解压 `Lumen-1.1.11-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
-2. 双击 `Lumen.exe`。
-3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
-4. 没有设备也可以点「打开演示会话」体验完整界面。
-5. 首次启动会话列表为空，使用左侧快速连接或演示会话开始。
+## 3. 性能专项
 
-> 首次运行会在程序目录生成 `data` 与 `logs`（便携模式）。如果希望把配置放到 `%APPDATA%\Lumen`，删除程序目录下的 `portable.flag` 即可。
+### 已完成
 
-## 常用快捷键
+- **VT 解析移出 UI 线程**：串口读取线程直接解码/解析，UI 只收合并后的 `Updated`
+- **逐行渲染缓存**：按行缓存 `DrawingGroup`，内容/选择/搜索/光标哈希不变时复用；光标闪烁只重建光标行
+- **零拷贝串口读取**：`DataReceived` 使用 `ReadOnlyMemory<byte>`，读取线程复用 8KB buffer
+- **搜索**：150ms debounce，每 256 行让出 dispatcher，可取消
+- **Scrollback**：固定容量环形缓冲，追加/裁剪 O(1)，不再 `List.RemoveAt(0)`
+- **完整 reflow**：后台快照重排 + 版本校验，UI 不阻塞
+- **日志**：bounded channel（8192，DropOldest），后台 worker
+- **UIA**：TextPattern 快照缓存 250ms
+- **串口写**：`ArrayPool<byte>` 复用
+- **UI 同步**：`ScreenBuffer.SyncRoot` 保护解析与渲染/搜索
 
-| 快捷键 | 功能 |
-|---|---|
-| `Ctrl+Shift+T` | 新建会话 |
-| `Ctrl+Shift+W` | 关闭当前会话 |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 切换标签 |
-| `Ctrl+1` … `Ctrl+9` | 跳到指定标签 |
-| `Ctrl+F` | 在当前会话中查找 |
-| `Ctrl+Shift+A` | 全选屏幕内容 |
-| `Ctrl+Shift+C` / `Ctrl+C` | 复制（有选区时复制，否则发送 Ctrl+C） |
-| `Ctrl+V` / `Ctrl+Shift+V` | 粘贴（带节流） |
-| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | 放大 / 缩小 / 重置字号 |
-| `Shift+PageUp` / `Shift+PageDown` | 翻看回滚缓冲 |
-| `Shift+Home` / `Shift+End` | 跳到回滚顶部 / 底部 |
-| `F11` | 最大化 / 还原 |
-| `Ctrl+Break` | 发送串口 Break（也可点工具栏 Break） |
+### 微基准（当前机器，Release，单次采样）
 
-## 数据与日志
+| 场景 | 结果 |
+|---|---:|
+| Scrollback 追加 20k 行（上限 10k） | 175–183 ms |
+| Scrollback 追加 40k 行（上限 10k） | 221–274 ms |
+| 完整重排 10k 行 / 120→80 列 | 66–86 ms（后台执行） |
+| 搜索 10k 行 | 50–60 ms（分块，不阻塞单帧） |
 
-- 便携模式（默认）：`程序目录\data\sessions.json`、`settings.json`、`程序目录\logs\*.log`
-- 非便携模式：`%APPDATA%\Lumen\`、`文档\Lumen Logs\`
-- 会话编辑器中可覆盖单个会话的日志目录。
-- 日志为 UTF-8 纯文本，自动去除 ANSI 控制序列；可选行首时间戳。
-- 日志可能包含设备配置、SNMP community、接口地址等敏感信息；请限制日志目录权限，分享前先脱敏。
-
-## 当前版本边界
-
-1.1 专注串口，以下功能**尚未包含**（架构已预留）：
-
-- SSH / Telnet / SFTP、端口转发、跳板机
-- XMODEM / YMODEM / ZMODEM 文件传输
-- 自动重连、批量群发、分屏
-- 浅色主题、脚本引擎、插件
-- 自绘终端中的中文输入法合成预览（中文显示与粘贴正常，CLI 输入以英文为主）
-
-## 从源码构建
-
-需要 **.NET 10 SDK**（Windows）：
+## 4. 验证
 
 ```powershell
 dotnet build .\src\Lumen\Lumen.csproj -c Debug
-dotnet publish .\src\Lumen\Lumen.csproj -c Release -r win-x64 --self-contained true -o .\dist\Lumen
+dotnet run --project .\tests\Lumen.Tests\Lumen.Tests.csproj -c Release
 ```
 
-或直接运行：
+已验证：
+
+- 17 项自检全部通过
+- Analyzer 0 警告，构建 0 错误
+- 后台解析 + Cisco Banner 自动识别 + 自动分页正常
+- 窗口缩放后内容保留，后台完整回滚重排
+- 异步搜索高亮 5 处 `Switch`，计数正确
+- 单实例第二次启动激活已有窗口，进程数保持 1
+- UIA `DocumentRange.GetText` 可读取完整终端文本
+- 1.1.12 打包版启动与版本号检查通过
+
+## 5. 已知限制 / 未完成
+
+这些不是当前热路径的性能问题，但仍是明确限制：
+
+- **自动重连**：按之前约定未实现，仅保留手动“重连”
+- **GitHub Actions**：按要求暂时忽略
+- **UIA 选区**：`SupportedTextSelection.None`，TextPattern 可读但不可选；`GetEnclosingElement` 仍返回 null
+- **画刷缓存**：是批量淘汰，不是严格 LRU
+- **文件拆分**：`VtParser` / `ScreenBuffer` 仍是较大单文件
+- **日志 ANSI 剥离**：仍逐字符，但在后台 worker 执行
+- **IME 候选框**：已接入 IMM32 定位，但当前环境没有中文输入法做人工位置验证
+- **代码签名**：未做，企业分发前可自签
+- **敏感日志**：可能包含设备配置/SNMP community/接口地址，分享前需脱敏
+
+## 6. 目录结构
+
+```text
+src/Lumen/
+  Controls/       TerminalView（Rendering/Selection）、UIA、IME
+  Terminal/       VT 解析、ScreenBuffer、ScrollbackBuffer、编码、按键
+  Serial/         Win32 串口、端口枚举、演示会话
+  Services/       会话存储、日志、设置
+  Views/          会话编辑器、设置、确认对话框
+  Themes/         深色主题与控件样式
+  MainWindow.*    主窗口（Tabs/Sessions/Actions 分部类）
+tests/Lumen.Tests/  17 项自检
+```
+
+## 7. 运行与打包
 
 ```powershell
+# 构建
+dotnet build .\src\Lumen\Lumen.csproj -c Debug
+
+# 打包（self-contained，win-x64）
 .\build.ps1
 ```
 
-测试：
+产物：`dist\Lumen`，压缩包 `dist\Lumen-1.1.12-win-x64.zip`。首次运行生成 `data` 与 `logs`（便携模式）；删除 `portable.flag` 可改用 `%APPDATA%\Lumen`。
 
-```powershell
-dotnet run --project tests/Lumen.Tests/Lumen.Tests.csproj -c Release
-```
+## 8. 数据与日志
 
-产物在 `dist\Lumen`，首次运行前会自动生成配置。发布包为 self-contained，目标机器无需安装 .NET。
+- 便携：`程序目录\data`、`程序目录\logs`
+- 非便携：`%APPDATA%\Lumen`、`文档\Lumen Logs`
+- 日志 UTF-8，自动去 ANSI；可选时间戳
+- 日志可能包含敏感信息，需限制目录权限并在分享前脱敏
 
-## 目录结构
+## 9. License
 
-```
-src/Lumen/
-  Controls/TerminalView*.cs    终端渲染、选区、查找、输入（分部类）
-  Terminal/                    VT 解析、屏幕缓冲、编码、按键编码
-  Serial/                      Win32 串口、端口枚举、演示会话
-  Services/                    会话存储、日志、设置
-  Views/                       会话编辑器、设置、确认对话框
-  Themes/                      深色主题与控件样式
-  MainWindow.xaml(.cs)         主窗口、标签、会话树（Tabs/Sessions/Actions 分部类）
-```
-
-## 已知说明
-
-- 串口层直接使用 `CreateFile` / `SetCommState` / `EscapeCommFunction`，不依赖 `System.IO.Ports`，因此支持 Break 与 DTR/RTS，且拔插时不会卡死。
-- 终端滚动缓冲默认 10,000 行，可在设置中调整。
-- 日志按会话名称与开始时间命名，同名会话不会覆盖。
-- 本版本未做代码签名，企业分发前建议使用内部证书签名，避免 SmartScreen 提示。
-
-## License
-
-本项目使用 MIT License，详见 [LICENSE](LICENSE)。
-
-SecureCRT 是 VanDyke Software 的商标；Lumen 与 VanDyke Software 无关联。
+MIT，详见 [LICENSE](LICENSE)。SecureCRT 是 VanDyke Software 的商标；Lumen 与其无关联。
 
 ---
 
-Lumen Terminal 1.1.11 · 为网络运维打造的串口控制台
+维护者报告 · Lumen Terminal 1.1.12
