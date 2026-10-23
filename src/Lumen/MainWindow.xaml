@@ -101,10 +101,12 @@
                             Click="NewSession_Click" />
                 </StackPanel>
 
-                <ScrollViewer Grid.Column="1"
+                <ScrollViewer x:Name="TabScroll"
+                              Grid.Column="1"
                               VerticalScrollBarVisibility="Disabled"
                               HorizontalScrollBarVisibility="Hidden"
-                              VerticalAlignment="Center">
+                              VerticalAlignment="Center"
+                              PreviewMouseWheel="TabScroll_PreviewMouseWheel">
                     <StackPanel x:Name="TabStrip" Orientation="Horizontal" VerticalAlignment="Center" />
                 </ScrollViewer>
 
@@ -337,7 +339,18 @@
                             BorderBrush="{StaticResource Brush.BorderSoft}"
                             BorderThickness="0,0,0,1">
                         <Grid Margin="14,0">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
                                 <Border x:Name="ActiveDot"
                                         Width="7"
                                         Height="7"
@@ -345,23 +358,30 @@
                                         Background="{StaticResource Brush.TextMuted}"
                                         VerticalAlignment="Center" />
                                 <TextBlock x:Name="ActiveTitle"
+                                           Grid.Column="1"
                                            Text="未连接"
                                            FontSize="13"
                                            FontWeight="SemiBold"
                                            Margin="8,0,0,0"
+                                           MaxWidth="240"
+                                           TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center" />
-                                <Border Width="1"
+                                <Border Grid.Column="2"
+                                        Width="1"
                                         Height="14"
                                         Background="{StaticResource Brush.Border}"
                                         Margin="10,0" />
                                 <TextBlock x:Name="ActiveSubtitle"
+                                           Grid.Column="3"
                                            Text="选择左侧会话，或使用快速连接"
                                            FontSize="12"
                                            Foreground="{StaticResource Brush.TextMuted}"
+                                           TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center" />
-                            </StackPanel>
+                            </Grid>
 
-                            <StackPanel Orientation="Horizontal"
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Center">
                                 <Button x:Name="BreakButton"
@@ -389,6 +409,11 @@
                                         Style="{StaticResource BtnTool}"
                                         ToolTip="开始 / 停止记录本次会话"
                                         Click="Log_Click" />
+                                <Button x:Name="LogFolderButton"
+                                        Content="日志目录"
+                                        Style="{StaticResource BtnTool}"
+                                        ToolTip="打开日志保存目录"
+                                        Click="OpenLogFolder_Click" />
                                 <Button x:Name="QuickCommandButton"
                                         Content="快捷命令"
                                         Style="{StaticResource BtnTool}"

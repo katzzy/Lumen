@@ -241,6 +241,7 @@ public sealed class TerminalView : FrameworkElement
     private SolidColorBrush Brush(uint argb)
     {
         if (_brushes.TryGetValue(argb, out var brush)) return brush;
+        if (_brushes.Count >= 2048) _brushes.Clear();
         var color = Color.FromArgb((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
         brush = new SolidColorBrush(color);
         brush.Freeze();
@@ -252,6 +253,7 @@ public sealed class TerminalView : FrameworkElement
     {
         uint key = argb ^ (uint)(thickness * 10);
         if (_pens.TryGetValue(key, out var pen)) return pen;
+        if (_pens.Count >= 512) _pens.Clear();
         pen = new Pen(Brush(argb), thickness);
         pen.Freeze();
         _pens[key] = pen;
@@ -560,12 +562,7 @@ public sealed class TerminalView : FrameworkElement
         return (fg, bg);
     }
 
-    private uint ResolveBg(Cell cell)
-    {
-        uint bg = cell.Bg;
-        if ((cell.Flags & CellFlags.Reverse) != 0 && bg == 0) bg = Palette.DefaultForeground;
-        return bg;
-    }
+    private uint ResolveBg(Cell cell) => ResolveColors(cell, false, Palette).Bg;
 
     private static uint WithAlpha(uint color, byte alpha) => (color & 0x00FFFFFFu) | ((uint)alpha << 24);
 
@@ -1001,6 +998,12 @@ public sealed class TerminalView : FrameworkElement
         if (shift && e.Key == Key.End)
         {
             ScrollToBottom();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Escape && _session.IsPasting)
+        {
+            _session.CancelPaste();
             e.Handled = true;
             return;
         }

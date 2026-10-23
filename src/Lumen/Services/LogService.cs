@@ -9,6 +9,7 @@ public sealed class LogService : IDisposable
     private bool _atLineStart = true;
     private bool _skipLineFeed;
     private StripState _stripState = StripState.Text;
+    private int _pendingChars;
 
     private enum StripState
     {
@@ -56,11 +57,12 @@ public sealed class LogService : IDisposable
         Stop();
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-        _writer = new StreamWriter(stream, encoding) { AutoFlush = true };
+        _writer = new StreamWriter(stream, encoding) { AutoFlush = false };
         FilePath = path;
         TimestampEnabled = timestamp;
         _atLineStart = true;
         _stripState = StripState.Text;
+        _pendingChars = 0;
         if (timestamp)
         {
             _writer.Write($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 会话开始{Environment.NewLine}");
@@ -114,6 +116,12 @@ public sealed class LogService : IDisposable
                     break;
             }
         }
+
+        _pendingChars += text.Length;
+        if (_pendingChars >= 8192)
+        {
+            Flush();
+        }
     }
 
     private void WriteVisible(char ch)
@@ -151,6 +159,7 @@ public sealed class LogService : IDisposable
         try
         {
             _writer?.Flush();
+            _pendingChars = 0;
         }
         catch
         {

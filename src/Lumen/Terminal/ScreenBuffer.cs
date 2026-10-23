@@ -128,43 +128,154 @@ public sealed class ScreenBuffer
         rows = Math.Max(2, rows);
         if (columns == Columns && rows == Rows) return;
 
-        var oldMain = _main;
-        var oldAlt = _alt;
-        int oldRows = Rows;
-        int oldCols = Columns;
+        int oldColumns = Columns;
+        int oldCursorRow = CursorRow;
+        int oldCursorCol = CursorCol;
+
+        if (columns != oldColumns)
+        {
+            ResizeWithReflow(columns, rows, oldCursorRow, oldCursorCol);
+        }
+        else
+        {
+            ResizeHeight(rows);
+        }
 
         Columns = columns;
         Rows = rows;
-        _main = new TerminalLine[rows];
-        _alt = new TerminalLine[rows];
-        for (int r = 0; r < rows; r++)
-        {
-            if (r < oldRows)
-            {
-                oldMain[r].Resize(columns);
-                oldAlt[r].Resize(columns);
-                _main[r] = oldMain[r];
-                _alt[r] = oldAlt[r];
-            }
-            else
-            {
-                _main[r] = new TerminalLine(columns);
-                _alt[r] = new TerminalLine(columns);
-            }
-        }
-
-        CursorRow = Math.Clamp(CursorRow, 0, rows - 1);
-        CursorCol = Math.Clamp(CursorCol, 0, columns - 1);
         _scrollTop = 0;
         _scrollBottom = rows - 1;
         _pendingWrap = false;
+        CursorRow = Math.Clamp(CursorRow, 0, rows - 1);
+        CursorCol = Math.Clamp(CursorCol, 0, columns - 1);
+        _savedMain.Row = Math.Clamp(_savedMain.Row, 0, rows - 1);
+        _savedMain.Col = Math.Clamp(_savedMain.Col, 0, columns - 1);
+        _savedAlt.Row = Math.Clamp(_savedAlt.Row, 0, rows - 1);
+        _savedAlt.Col = Math.Clamp(_savedAlt.Col, 0, columns - 1);
 
-        var tabs = new bool[columns];
-        for (int i = 0; i < oldCols && i < columns; i++) tabs[i] = _tabStops[i];
-        for (int i = oldCols; i < columns; i += 8) tabs[i] = true;
-        _tabStops = tabs;
-
+        RebuildTabStops(oldColumns, columns);
         while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
+    }
+
+    private void ResizeWithReflow(int newColumns, int newRows, int cursorRow, int cursorCol)
+    {
+        int mainCursorRow = _altActive ? _savedMain.Row : cursorRow;
+        int mainCursorCol = _altActive ? _savedMain.Col : cursorCol;
+
+        // Reflow only recent history plus the visible screen. Reflowing a full
+        // 10k-line scrollback on every drag frame would make the UI stutter, and
+        // older lines are still retained at their original width.
+        const int scrollbackBudget = 512;
+        int prefixCount = Math.Max(0, _scrollback.Count - scrollbackBudget);
+        int recentCount = _scrollback.Count - prefixCount;
+
+        var mainSource = new List<TerminalLine>(recentCount + _main.Length);
+        for (int i = prefixCount; i < _scrollback.Count; i++) mainSource.Add(_scrollback[i]);
+        mainSource.AddRange(_main);
+        int mainCursorAbs = recentCount + mainCursorRow;
+        var main = TerminalReflow.Reflow(mainSource, newColumns, mainCursorAbs, mainCursorCol);
+
+        int altCursorRow = _altActive ? cursorRow : 0;
+        int altCursorCol = _altActive ? cursorCol : 0;
+        var alt = TerminalReflow.Reflow(_alt, newColumns, altCursorRow, altCursorCol);
+
+        int mainStart = Math.Max(0, main.Lines.Count - newRows);
+        var scrollback = new List<TerminalLine>(prefixCount + mainStart);
+        for (int i = 0; i < prefixCount; i++) scrollback.Add(_scrollback[i]);
+        for (int i = 0; i < mainStart; i++) scrollback.Add(main.Lines[i]);
+        _scrollback.Clear();
+        _scrollback.AddRange(scrollback);
+
+        _main = new TerminalLine[newRows];
+        for (int r = 0; r < newRows; r++)
+        {
+            int index = mainStart + r;
+            _main[r] = index < main.Lines.Count ? main.Lines[index] : new TerminalLine(newColumns);
+        }
+
+        int altStart = Math.Max(0, alt.Lines.Count - newRows);
+        _alt = new TerminalLine[newRows];
+        for (int r = 0; r < newRows; r++)
+        {
+            int index = altStart + r;
+            _alt[r] = index < alt.Lines.Count ? alt.Lines[index] : new TerminalLine(newColumns);
+        }
+
+        if (_altActive)
+        {
+            CursorRow = Math.Clamp(alt.CursorLine - altStart, 0, newRows - 1);
+            CursorCol = Math.Clamp(alt.CursorColumn, 0, newColumns - 1);
+            _savedMain.Row = Math.Clamp(main.CursorLine - mainStart, 0, newRows - 1);
+            _savedMain.Col = Math.Clamp(main.CursorColumn, 0, newColumns - 1);
+        }
+        else
+        {
+            CursorRow = Math.Clamp(main.CursorLine - mainStart, 0, newRows - 1);
+            CursorCol = Math.Clamp(main.CursorColumn, 0, newColumns - 1);
+            _savedAlt.Row = Math.Clamp(alt.CursorLine - altStart, 0, newRows - 1);
+            _savedAlt.Col = Math.Clamp(alt.CursorColumn, 0, newColumns - 1);
+        }
+    }
+
+    private void ResizeHeight(int newRows)
+    {
+        int oldRows = _main.Length;
+        if (newRows >= oldRows)
+        {
+            _main = ExpandRows(_main, newRows);
+            _alt = ExpandRows(_alt, newRows);
+            return;
+        }
+
+        int drop = oldRows - newRows;
+        for (int i = 0; i < drop; i++)
+        {
+            AddScrollback(_main[i]);
+        }
+
+        _main = TakeBottomRows(_main, newRows);
+        _alt = TakeBottomRows(_alt, newRows);
+
+        if (_altActive)
+        {
+            CursorRow = Math.Max(0, CursorRow - drop);
+            _savedMain.Row = Math.Max(0, _savedMain.Row - drop);
+        }
+        else
+        {
+            CursorRow = Math.Max(0, CursorRow - drop);
+        }
+    }
+
+    private static TerminalLine[] ExpandRows(TerminalLine[] source, int rows)
+    {
+        var result = new TerminalLine[rows];
+        for (int i = 0; i < rows; i++)
+        {
+            result[i] = i < source.Length ? source[i] : new TerminalLine(source.Length > 0 ? source[0].Cells.Length : 2);
+        }
+        return result;
+    }
+
+    private static TerminalLine[] TakeBottomRows(TerminalLine[] source, int rows)
+    {
+        var result = new TerminalLine[rows];
+        int start = Math.Max(0, source.Length - rows);
+        int columns = source.Length > 0 ? source[0].Cells.Length : 2;
+        for (int i = 0; i < rows; i++)
+        {
+            int index = start + i;
+            result[i] = index < source.Length ? source[index] : new TerminalLine(columns);
+        }
+        return result;
+    }
+
+    private void RebuildTabStops(int oldColumns, int columns)
+    {
+        var tabs = new bool[columns];
+        for (int i = 0; i < oldColumns && i < columns; i++) tabs[i] = _tabStops[i];
+        for (int i = oldColumns; i < columns; i += 8) tabs[i] = true;
+        _tabStops = tabs;
     }
 
     public void SetScrollRegion(int top, int bottom)

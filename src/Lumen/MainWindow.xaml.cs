@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -470,6 +471,7 @@ public partial class MainWindow : Window
 
         BreakButton.IsEnabled = connected;
         LogButton.IsEnabled = has;
+        LogFolderButton.IsEnabled = has;
         QuickCommandButton.IsEnabled = has;
         ClearButton.IsEnabled = has;
         FindButton.IsEnabled = has;
@@ -624,6 +626,8 @@ public partial class MainWindow : Window
 
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (OverlayHost.Visibility == Visibility.Visible) return;
+
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
@@ -668,6 +672,13 @@ public partial class MainWindow : Window
         int index = _active is null ? 0 : _tabs.IndexOf(_active);
         index = (index + direction + _tabs.Count) % _tabs.Count;
         ActivateTab(_tabs[index]);
+    }
+
+    private void TabScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (TabScroll.ScrollableWidth <= 0) return;
+        TabScroll.ScrollToHorizontalOffset(TabScroll.HorizontalOffset - e.Delta);
+        e.Handled = true;
     }
 
     private void ToggleMaximize() =>
@@ -872,6 +883,12 @@ public partial class MainWindow : Window
                 tab.Profile.VendorId = updated.VendorId;
                 tab.Profile.Encoding = updated.Encoding;
                 tab.Profile.AutoPaging = updated.AutoPaging;
+                tab.Profile.QuickCommands = updated.QuickCommands.Select(q => q.Clone()).ToList();
+                tab.Profile.PasteLineDelayMs = updated.PasteLineDelayMs;
+                tab.Profile.LogDirectory = updated.LogDirectory;
+                tab.Profile.ConfirmDangerousPaste = updated.ConfirmDangerousPaste;
+                tab.Profile.InitCommands = updated.InitCommands;
+                tab.Profile.AutoLog = updated.AutoLog;
                 tab.TitleText.Text = updated.Name;
                 tab.View.TerminalFontSize = updated.FontSize;
                 UpdateTabVisual(tab);
@@ -885,7 +902,7 @@ public partial class MainWindow : Window
             SetStatus(isNew
                 ? $"已创建会话：{updated.Name}"
                 : tab is not null
-                    ? $"已保存会话：{updated.Name}（串口参数将在重新连接后生效）"
+                    ? $"已保存会话：{updated.Name}（串口参数、编码与初始化命令将在重新连接后生效）"
                     : $"已保存会话：{updated.Name}");
         };
         view.Cancelled += HideOverlay;
@@ -956,9 +973,9 @@ public partial class MainWindow : Window
             : _settings.DefaultPasteDelayMs;
         delay = Math.Clamp(delay, 0, 1000);
 
-        SetStatus($"正在粘贴（每行延迟 {delay} ms）…");
-        await tab.Session.PasteAsync(text, delay);
-        SetStatus("粘贴完成");
+        SetStatus($"正在粘贴（每行延迟 {delay} ms，Esc 取消）…");
+        bool completed = await tab.Session.PasteAsync(text, delay);
+        SetStatus(completed ? "粘贴完成" : "粘贴已取消");
     }
 
     private static bool ContainsDangerousCommand(string text)
@@ -1015,6 +1032,27 @@ public partial class MainWindow : Window
     }
 
     private void Clear_Click(object sender, RoutedEventArgs e) => _active?.View.ClearScreen();
+
+    private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
+    {
+        string? directory = null;
+        if (_active?.Session.LogPath is { } logPath)
+        {
+            directory = Path.GetDirectoryName(logPath);
+        }
+        directory ??= _active?.Profile.LogDirectory;
+        if (string.IsNullOrWhiteSpace(directory)) directory = _settings.EffectiveLogRoot;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{directory}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"无法打开日志目录：{ex.Message}", true);
+        }
+    }
 
     private void Find_Click(object sender, RoutedEventArgs e) => ShowFind();
 
@@ -1183,13 +1221,17 @@ public partial class MainWindow : Window
 
     private async Task SendQuickCommandAsync(SessionProfile profile, QuickCommand command)
     {
-        if (_active is null || !_active.Session.IsConnected) return;
+        var tab = _active;
+        if (tab is null || !tab.Session.IsConnected) return;
+
         if (command.Confirm)
         {
             bool ok = await ConfirmAsync("确认发送", $"即将发送命令：\n\n{command.Command}", "发送");
             if (!ok) return;
         }
-        _active.Session.SendText(command.Command + "\r");
+
+        if (!tab.Session.IsConnected) return;
+        tab.Session.SendText(command.Command + "\r");
         HideOverlay();
         SetStatus($"已发送：{command.Name}");
     }

@@ -76,6 +76,12 @@ public sealed class TerminalSession : IDisposable
         try
         {
             await _transport.OpenAsync().ConfigureAwait(true);
+            if (_disposed)
+            {
+                IsConnected = false;
+                return false;
+            }
+
             IsConnected = true;
             StateChanged?.Invoke();
 
@@ -92,16 +98,17 @@ public sealed class TerminalSession : IDisposable
                 await Task.Delay(650);
                 foreach (var command in commands)
                 {
-                    if (!IsConnected) break;
+                    if (_disposed || !IsConnected) break;
                     SendText(command + "\r");
                     await Task.Delay(160);
                 }
             }
 
-            return true;
+            return !_disposed;
         }
         catch (Exception ex)
         {
+            if (_disposed) return false;
             IsConnected = false;
             InjectSystem($"无法打开 {_profile.Serial.PortName}：{ex.Message}", true);
             StateChanged?.Invoke();
@@ -222,6 +229,7 @@ public sealed class TerminalSession : IDisposable
 
     private void HandleDisconnected(string reason)
     {
+        if (_disposed) return;
         if (!IsConnected && !_transport.IsOpen) return;
         IsConnected = false;
         _log.Stop();
@@ -231,7 +239,7 @@ public sealed class TerminalSession : IDisposable
 
     public void SendText(string text)
     {
-        if (!IsConnected || text.Length == 0) return;
+        if (_disposed || !IsConnected || text.Length == 0) return;
         try
         {
             var bytes = _encoding.GetBytes(text);
@@ -243,7 +251,7 @@ public sealed class TerminalSession : IDisposable
         }
     }    public void SendBytes(byte[] bytes)
     {
-        if (!IsConnected || bytes.Length == 0) return;
+        if (_disposed || !IsConnected || bytes.Length == 0) return;
         try
         {
             _transport.Write(bytes);
@@ -275,7 +283,7 @@ public sealed class TerminalSession : IDisposable
     public void SetDtr(bool enabled) => _transport.SetDtr(enabled);
     public void SetRts(bool enabled) => _transport.SetRts(enabled);
 
-    public async Task PasteAsync(string text, int lineDelayMs)
+    public async Task<bool> PasteAsync(string text, int lineDelayMs)
     {
         CancelPaste();
         var cts = new CancellationTokenSource();
@@ -285,14 +293,20 @@ public sealed class TerminalSession : IDisposable
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n').ToList();
         while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
-        if (lines.Count == 0) return;
+        if (lines.Count == 0) return true;
 
+        bool completed = true;
         IsPasting = true;
         try
         {
             for (int i = 0; i < lines.Count; i++)
             {
-                if (token.IsCancellationRequested || !IsConnected) break;
+                if (token.IsCancellationRequested || _disposed || !IsConnected)
+                {
+                    completed = false;
+                    break;
+                }
+
                 SendText(lines[i]);
                 SendBytes(new byte[] { 0x0D });
                 PasteProgress?.Invoke(i + 1, lines.Count);
@@ -304,7 +318,7 @@ public sealed class TerminalSession : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // cancelled by user
+            completed = false;
         }
         finally
         {
@@ -312,6 +326,8 @@ public sealed class TerminalSession : IDisposable
             if (ReferenceEquals(_pasteCts, cts)) _pasteCts = null;
             cts.Dispose();
         }
+
+        return completed;
     }
 
     public void CancelPaste()
@@ -328,7 +344,7 @@ public sealed class TerminalSession : IDisposable
 
     public void StartLog(string? directory = null, bool? timestamps = null)
     {
-        if (_log.IsActive) return;
+        if (_disposed || _log.IsActive) return;
         try
         {
             var root = directory ?? _profile.LogDirectory;
@@ -353,6 +369,7 @@ public sealed class TerminalSession : IDisposable
 
     public void InjectSystem(string message, bool error = false)
     {
+        if (_disposed) return;
         string color = error ? "248;81;73" : "139;147;167";
         _parser.Parse($"\r\n\x1b[38;2;{color}m[Lumen] {message}\x1b[0m\r\n");
         Updated?.Invoke();
@@ -366,7 +383,7 @@ public sealed class TerminalSession : IDisposable
 
     public void Disconnect()
     {
-        if (!IsConnected) return;
+        if (_disposed || !IsConnected) return;
         IsConnected = false;
         _log.Stop();
         try
@@ -385,6 +402,7 @@ public sealed class TerminalSession : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        IsConnected = false;
         CancelPaste();
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
