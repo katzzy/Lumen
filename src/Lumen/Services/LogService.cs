@@ -234,83 +234,118 @@ public sealed class LogService : IDisposable
     private void WriteRaw(string text)
     {
         if (_writer is null) return;
-        foreach (char ch in text)
+
+        int index = 0;
+        while (index < text.Length)
         {
-            switch (_stripState)
+            if (_stripState != StripState.Text)
             {
-                case StripState.Text:
-                    if (ch == '\x1b')
-                    {
-                        _stripState = StripState.Escape;
-                        continue;
-                    }
-                    WriteVisible(ch);
-                    break;
-
-                case StripState.Escape:
-                    if (ch == '[') _stripState = StripState.Csi;
-                    else if (ch == ']') _stripState = StripState.Osc;
-                    else if (ch == 'P') _stripState = StripState.Dcs;
-                    else _stripState = StripState.Text;
-                    break;
-
-                case StripState.Csi:
-                    if (ch >= 0x40 && ch <= 0x7e) _stripState = StripState.Text;
-                    else if (ch == '\x1b') _stripState = StripState.Escape;
-                    break;
-
-                case StripState.Osc:
-                    if (ch == '\a') _stripState = StripState.Text;
-                    else if (ch == '\x1b') _stripState = StripState.OscEscape;
-                    break;
-
-                case StripState.OscEscape:
-                    _stripState = ch == '\\' ? StripState.Text : StripState.Osc;
-                    break;
-
-                case StripState.Dcs:
-                    if (ch == '\x1b') _stripState = StripState.DcsEscape;
-                    else if (ch == '\a') _stripState = StripState.Text;
-                    break;
-
-                case StripState.DcsEscape:
-                    _stripState = ch == '\\' ? StripState.Text : StripState.Dcs;
-                    break;
+                ConsumeEscape(text[index]);
+                index++;
+                continue;
             }
+
+            int escape = text.IndexOf('\x1b', index);
+            int end = escape < 0 ? text.Length : escape;
+            WriteVisible(text.AsSpan(index, end - index));
+            if (escape < 0) break;
+
+            _stripState = StripState.Escape;
+            index = end + 1;
         }
 
         _pendingChars += text.Length;
         if (_pendingChars >= 8192) FlushCore();
     }
 
-    private void WriteVisible(char ch)
+    private void ConsumeEscape(char ch)
     {
-        if (_writer is null) return;
-
-        if (ch == '\r')
+        switch (_stripState)
         {
-            _skipLineFeed = true;
+            case StripState.Escape:
+                if (ch == '[') _stripState = StripState.Csi;
+                else if (ch == ']') _stripState = StripState.Osc;
+                else if (ch == 'P') _stripState = StripState.Dcs;
+                else _stripState = StripState.Text;
+                break;
+
+            case StripState.Csi:
+                if (ch >= 0x40 && ch <= 0x7e) _stripState = StripState.Text;
+                else if (ch == '\x1b') _stripState = StripState.Escape;
+                break;
+
+            case StripState.Osc:
+                if (ch == '\a') _stripState = StripState.Text;
+                else if (ch == '\x1b') _stripState = StripState.OscEscape;
+                break;
+
+            case StripState.OscEscape:
+                _stripState = ch == '\\' ? StripState.Text : StripState.Osc;
+                break;
+
+            case StripState.Dcs:
+                if (ch == '\x1b') _stripState = StripState.DcsEscape;
+                else if (ch == '\a') _stripState = StripState.Text;
+                break;
+
+            case StripState.DcsEscape:
+                _stripState = ch == '\\' ? StripState.Text : StripState.Dcs;
+                break;
+        }
+    }
+
+    private void WriteVisible(ReadOnlySpan<char> span)
+    {
+        if (_writer is null || span.IsEmpty) return;
+
+        bool simple = true;
+        foreach (char ch in span)
+        {
+            if (ch == '\r' || ch == '\n' || (char.IsControl(ch) && ch != '\t'))
+            {
+                simple = false;
+                break;
+            }
+        }
+
+        if (simple)
+        {
+            if (_skipLineFeed) _skipLineFeed = false;
+            if (_atLineStart)
+            {
+                if (TimestampEnabled) _writer.Write($"[{DateTime.Now:HH:mm:ss}] ");
+                _atLineStart = false;
+            }
+            _writer.Write(span);
             return;
         }
 
-        if (ch == '\n')
+        foreach (char ch in span)
         {
-            _writer.Write('\n');
-            _atLineStart = true;
-            _skipLineFeed = false;
-            return;
+            if (ch == '\r')
+            {
+                _skipLineFeed = true;
+                continue;
+            }
+
+            if (ch == '\n')
+            {
+                _writer.Write('\n');
+                _atLineStart = true;
+                _skipLineFeed = false;
+                continue;
+            }
+
+            if (_skipLineFeed) _skipLineFeed = false;
+            if (char.IsControl(ch) && ch != '\t') continue;
+
+            if (_atLineStart)
+            {
+                if (TimestampEnabled) _writer.Write($"[{DateTime.Now:HH:mm:ss}] ");
+                _atLineStart = false;
+            }
+            _writer.Write(ch);
         }
-
-        if (_skipLineFeed) _skipLineFeed = false;
-
-        if (char.IsControl(ch) && ch != '\t') return;
-
-        if (_atLineStart)
-        {
-            if (TimestampEnabled) _writer.Write($"[{DateTime.Now:HH:mm:ss}] ");
-            _atLineStart = false;
-        }
-        _writer.Write(ch);
     }
 
     private void WriteTxCore(string command)

@@ -8,15 +8,22 @@ namespace Lumen.Controls;
 /// this automatically for its built-in text editors; a custom FrameworkElement
 /// needs to set the candidate position through IMM32 itself.
 /// </summary>
-internal static class ImeCandidatePositioner
+public static class ImeCandidatePositioner
 {
     private const int CfsCandidatePos = 0x0040;
 
-    public static void Set(IntPtr windowHandle, Point screenPoint)
+    /// <summary>
+    /// Candidate window is placed just below the caret. Kept pure so the
+    /// coordinate math is testable even when no Chinese IME is installed.
+    /// </summary>
+    public static Point GetCandidatePoint(Point caret, double cellHeight) =>
+        new(caret.X, caret.Y + cellHeight);
+
+    public static bool Set(IntPtr windowHandle, Point screenPoint)
     {
-        if (windowHandle == IntPtr.Zero) return;
+        if (windowHandle == IntPtr.Zero) return false;
         IntPtr context = ImmGetContext(windowHandle);
-        if (context == IntPtr.Zero) return;
+        if (context == IntPtr.Zero) return false;
 
         try
         {
@@ -30,7 +37,7 @@ internal static class ImeCandidatePositioner
                     Y = (int)Math.Round(screenPoint.Y)
                 }
             };
-            ImmSetCandidateWindow(context, ref form);
+            return ImmSetCandidateWindow(context, ref form);
         }
         finally
         {

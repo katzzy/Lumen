@@ -16,9 +16,9 @@ public sealed partial class TerminalView : FrameworkElement
     private const double PadX = 12;
     private const double PadY = 8;
 
-    private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
-    private readonly Dictionary<uint, Pen> _pens = new();
-    private readonly Dictionary<(string Text, uint Color, CellFlags Flags), FormattedText> _formattedCache = new();
+    private readonly LruCache<uint, SolidColorBrush> _brushes = new(2048);
+    private readonly LruCache<uint, Pen> _pens = new(512);
+    private readonly LruCache<(string Text, uint Color, CellFlags Flags), FormattedText> _formattedCache = new(4096);
     private readonly DispatcherTimer _cursorTimer;
     private readonly DispatcherTimer _fullReflowTimer;
     private Typeface _regular = null!;
@@ -158,7 +158,7 @@ public sealed partial class TerminalView : FrameworkElement
             {
                 var line = buffer.GetDisplayLine(i);
                 if (line is null) continue;
-                sb.AppendLine(line.GetText());
+                sb.Append(line.GetText()).Append('\n');
             }
             return sb.ToString();
         }
@@ -467,7 +467,9 @@ public sealed partial class TerminalView : FrameworkElement
         var buffer = _session.Buffer;
         int row = Math.Clamp(buffer.CursorRow, 0, Math.Max(0, buffer.Rows - 1));
         int col = Math.Clamp(buffer.CursorCol, 0, Math.Max(0, buffer.Columns - 1));
-        var caret = new Point(PadX + col * _cellW, PadY + row * _cellH + _cellH);
+        var caret = ImeCandidatePositioner.GetCandidatePoint(
+            new Point(PadX + col * _cellW, PadY + row * _cellH),
+            _cellH);
         try
         {
             ImeCandidatePositioner.Set(hwnd, PointToScreen(caret));

@@ -3,6 +3,7 @@ using Lumen.Services;
 using Lumen.Terminal;
 using System.IO;
 using System.Text;
+using System.Windows;
 
 int failures = 0;
 
@@ -130,16 +131,21 @@ Check("cjk text map", cjkText == "中A" && cjkMap.SequenceEqual(new[] { 0, 2 }),
 var bluetooth = new SerialPortInfo("COM5", "蓝牙链接上的标准串行", "Standard Serial over Bluetooth link");
 Check("bluetooth badge", bluetooth.IsBluetooth && bluetooth.KindLabel == "BT");
 
+var candidate = Lumen.Controls.ImeCandidatePositioner.GetCandidatePoint(new Point(10, 20), 18);
+Check("ime candidate below caret", candidate == new Point(10, 38), candidate.ToString());
+
 string logPath = Path.Combine(Environment.CurrentDirectory, $"lumen-test-{Guid.NewGuid():N}.log");
 try
 {
     using var log = new LogService();
     log.Start(logPath, timestamp: false, Encoding.UTF8);
     log.Write("received line\r\n");
+    log.Write("\x1b[31mansi red\x1b[0m\r\n");
     log.WriteTx("show version\r");
     log.Stop();
     string logText = File.ReadAllText(logPath);
     Check("tx log", logText.Contains("received line") && logText.Contains("[TX] show version"), logText);
+    Check("ansi stripped", logText.Contains("ansi red") && !logText.Contains('\x1b'), logText);
 }
 finally
 {

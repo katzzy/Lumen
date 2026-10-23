@@ -86,7 +86,7 @@ public sealed class TerminalTextRangeProvider : ITextRangeProvider
 
     public double[] GetBoundingRectangles() => Array.Empty<double>();
 
-    public IRawElementProviderSimple GetEnclosingElement() => null!;
+    public IRawElementProviderSimple GetEnclosingElement() => _peer.GetElementProvider();
 
     public string GetText(int maxLength)
     {
@@ -165,18 +165,22 @@ public sealed class TerminalTextRangeProvider : ITextRangeProvider
 
     public void Select()
     {
+        _peer.SelectRange(_start, _end);
     }
 
     public void AddToSelection()
     {
+        _peer.SelectRange(_start, _end);
     }
 
     public void RemoveFromSelection()
     {
+        _peer.ClearSelection();
     }
 
     public void ScrollIntoView(bool alignToTop)
     {
+        _peer.SelectRange(_start, _end);
     }
 
     public IRawElementProviderSimple[] GetChildren() => Array.Empty<IRawElementProviderSimple>();

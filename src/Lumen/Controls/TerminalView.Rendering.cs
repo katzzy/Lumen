@@ -15,9 +15,8 @@ public sealed partial class TerminalView
     private FormattedText GetFormattedText(string text, CellFlags flags, uint color)
     {
         var key = (text, color, flags & (CellFlags.Bold | CellFlags.Italic));
-        if (_formattedCache.TryGetValue(key, out var cached)) return cached;
+        if (_formattedCache.TryGet(key, out var cached)) return cached;
 
-        if (_formattedCache.Count >= 4096) _formattedCache.Clear();
         var formatted = new FormattedText(
             text,
             CultureInfo.CurrentUICulture,
@@ -29,35 +28,27 @@ public sealed partial class TerminalView
         {
             TextAlignment = TextAlignment.Left
         };
-        _formattedCache[key] = formatted;
+        _formattedCache.Add(key, formatted);
         return formatted;
-    }
-
-    private static void EvictOldest<TKey, TValue>(Dictionary<TKey, TValue> cache, int count)
-        where TKey : notnull
-    {
-        foreach (var key in cache.Keys.Take(count).ToArray()) cache.Remove(key);
     }
 
     private SolidColorBrush Brush(uint argb)
     {
-        if (_brushes.TryGetValue(argb, out var brush)) return brush;
-        if (_brushes.Count >= 2048) EvictOldest(_brushes, 1024);
+        if (_brushes.TryGet(argb, out var brush)) return brush;
         var color = Color.FromArgb((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
         brush = new SolidColorBrush(color);
         brush.Freeze();
-        _brushes[argb] = brush;
+        _brushes.Add(argb, brush);
         return brush;
     }
 
     private Pen LinePen(uint argb, double thickness = 1)
     {
         uint key = argb ^ (uint)(thickness * 10);
-        if (_pens.TryGetValue(key, out var pen)) return pen;
-        if (_pens.Count >= 512) EvictOldest(_pens, 256);
+        if (_pens.TryGet(key, out var pen)) return pen;
         pen = new Pen(Brush(argb), thickness);
         pen.Freeze();
-        _pens[key] = pen;
+        _pens.Add(key, pen);
         return pen;
     }
 

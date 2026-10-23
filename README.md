@@ -1,4 +1,4 @@
-# Lumen Terminal 1.1.12
+# Lumen Terminal 1.1.13
 
 面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
 
@@ -11,6 +11,8 @@
 - **缩放不丢内容**：窗口缩窄或变高时重排可见终端和最近回滚；完整回滚在后台重排，不阻塞界面。
 - **关闭日志不卡顿**：日志后台写盘，关闭标签时异步落盘，退出时统一收尾。
 - **更稳的串口会话**：修复关闭标签时的连接竞态，单实例保护，串口写入 0 字节会明确报错。
+- **读屏与输入**：UIA TextPattern 支持选区与 GetEnclosingElement；IME 候选框定位到终端光标下方。
+- **日志更干净**：ANSI 剥离改为批量处理，后台写盘不阻塞界面。
 
 ## 为什么是 Lumen
 
@@ -48,7 +50,7 @@
 
 ## 快速开始
 
-1. 解压 `Lumen-1.1.12-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
+1. 解压 `Lumen-1.1.13-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
 2. 双击 `Lumen.exe`。
 3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
 4. 没有设备也可以点「打开演示会话」体验完整界面。
@@ -144,4 +146,4 @@ SecureCRT 是 VanDyke Software 的商标；Lumen 与 VanDyke Software 无关联�
 
 ---
 
-Lumen Terminal 1.1.12 · 为网络运维打造的串口控制台
+Lumen Terminal 1.1.13 · 为网络运维打造的串口控制台
