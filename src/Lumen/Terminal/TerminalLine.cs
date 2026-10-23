@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Lumen.Terminal;
 
 public sealed class TerminalLine
@@ -50,22 +52,65 @@ public sealed class TerminalLine
     {
         if (length < 0) length = Cells.Length - start;
         int end = Math.Min(Cells.Length, start + length);
-        var chars = new char[end - start];
-        int n = 0;
+        var sb = new StringBuilder(end - start);
         for (int i = start; i < end; i++)
         {
             var cell = Cells[i];
-            if (cell.Flags.HasFlag(CellFlags.WideTail)) continue;
+            if ((cell.Flags & CellFlags.WideTail) != 0) continue;
             int rune = cell.Rune == 0 ? ' ' : cell.Rune;
-            if (rune <= 0xFFFF)
+            if (rune > 0 && rune <= 0x10FFFF && !char.IsSurrogate((char)Math.Min(rune, 0xFFFF)))
             {
-                chars[n++] = (char)rune;
+                sb.Append(char.ConvertFromUtf32(rune));
             }
             else
             {
-                chars[n++] = ' ';
+                sb.Append(' ');
+            }
+            if (cell.Combining is not null) sb.Append(cell.Combining);
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Returns the line text plus a char-index-to-cell-index map for search highlighting.
+    /// Wide glyphs occupy two UTF-16 chars in the text but still map to one cell.
+    /// </summary>
+    public (string Text, int[] CellAtChar) GetTextWithCells(int start = 0, int length = -1)
+    {
+        if (length < 0) length = Cells.Length - start;
+        int end = Math.Min(Cells.Length, start + length);
+        var sb = new StringBuilder(end - start);
+        var map = new List<int>(end - start);
+
+        for (int i = start; i < end; i++)
+        {
+            var cell = Cells[i];
+            if ((cell.Flags & CellFlags.WideTail) != 0) continue;
+            int rune = cell.Rune == 0 ? ' ' : cell.Rune;
+            string text;
+            if (rune > 0 && rune <= 0x10FFFF && !char.IsSurrogate((char)Math.Min(rune, 0xFFFF)))
+            {
+                text = char.ConvertFromUtf32(rune);
+            }
+            else
+            {
+                text = " ";
+            }
+
+            sb.Append(text);
+            for (int n = 0; n < text.Length; n++) map.Add(i);
+
+            if (cell.Combining is not null)
+            {
+                sb.Append(cell.Combining);
+                for (int n = 0; n < cell.Combining.Length; n++) map.Add(i);
             }
         }
-        return n == 0 ? "" : new string(chars, 0, n).TrimEnd();
+
+        int textLength = sb.Length;
+        while (textLength > 0 && sb[textLength - 1] == ' ') textLength--;
+        string value = sb.ToString(0, textLength);
+        if (map.Count > textLength) map.RemoveRange(textLength, map.Count - textLength);
+        return (value, map.ToArray());
     }
 }

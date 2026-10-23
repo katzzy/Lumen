@@ -12,7 +12,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <Version>1.1.4</Version>
+    <Version>1.1.5</Version>
     <Company>Lumen</Company>
     <Product>Lumen Terminal</Product>
     <Description>为网络运维打造的 Windows 串口控制台</Description>

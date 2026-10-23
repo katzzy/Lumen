@@ -223,7 +223,10 @@ internal sealed class Win32SerialPort : IDisposable
                     int err = Marshal.GetLastWin32Error();
                     throw new SerialException(FriendlyError("串口写入", err), new Win32Exception(err));
                 }
-                if (written == 0) break;
+                if (written == 0)
+                {
+                    throw new SerialException($"串口写入返回 0 字节（已写 {offset}/{bytes.Length}）。");
+                }
                 offset += (int)written;
             }
             BytesSent += offset;

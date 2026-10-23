@@ -1,6 +1,8 @@
 # Build output
 src/**/bin/
 src/**/obj/
+tests/**/bin/
+tests/**/obj/
 dist/
 .vs/
 *.user

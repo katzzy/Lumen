@@ -470,6 +470,7 @@ public partial class MainWindow : Window
             : BuildSubtitle(_active);
 
         BreakButton.IsEnabled = connected;
+        ReconnectButton.IsEnabled = has && _active?.Profile.Id != "demo-session";
         LogButton.IsEnabled = has;
         LogFolderButton.IsEnabled = has;
         QuickCommandButton.IsEnabled = has;
@@ -715,7 +716,9 @@ public partial class MainWindow : Window
             PortCombo.ItemsSource = _ports;
             var selected = _ports.FirstOrDefault(p => p.PortName == selectedPort) ?? _ports[0];
             PortCombo.SelectedItem = selected;
-            PortHint.Text = selected.DisplayName;
+            PortHint.Text = string.IsNullOrEmpty(selected.KindLabel)
+                ? selected.DisplayName
+                : $"{selected.DisplayName} · {selected.KindLabel}";
         }
         QuickConnectButton.IsEnabled = _ports.Count > 0;
     }
@@ -724,7 +727,9 @@ public partial class MainWindow : Window
     {
         if (PortCombo.SelectedItem is SerialPortInfo port)
         {
-            PortHint.Text = port.IsUsb ? port.DisplayName + " · USB" : port.DisplayName;
+            PortHint.Text = string.IsNullOrEmpty(port.KindLabel)
+                ? port.DisplayName
+                : $"{port.DisplayName} · {port.KindLabel}";
         }
     }
 
@@ -744,12 +749,42 @@ public partial class MainWindow : Window
             return;
         }
 
+        var busy = FindBusyTabForPort(port.PortName);
+        if (busy is not null)
+        {
+            ActivateTab(busy);
+            if (busy.Profile.Serial.BaudRate != baud)
+            {
+                SetStatus($"该串口已在标签中打开（{busy.Profile.Serial.BaudRate} baud），请先关闭标签再切换波特率", true);
+            }
+            return;
+        }
+
         var profile = SessionProfile.CreateDefault($"{port.PortName} · {baud}", "快速连接");
-        profile.Id = "quick-" + port.PortName;
+        profile.Id = $"quick-{port.PortName}-{baud}";
         profile.Serial.PortName = port.PortName;
         profile.Serial.BaudRate = baud;
         profile.AutoLog = _settings.AutoLog;
         profile.FontSize = _settings.FontSize;
+        StartSession(profile, new SerialConnection(profile.Serial));
+    }
+
+    private TabEntry? FindBusyTabForPort(string portName)
+    {
+        return _tabs.FirstOrDefault(t =>
+            (t.Connecting || t.Session.IsConnected) &&
+            string.Equals(t.Profile.Serial.PortName, portName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void Reconnect_Click(object sender, RoutedEventArgs e)
+    {
+        var tab = _active;
+        if (tab is null || tab.Profile.Id == "demo-session") return;
+
+        var profile = tab.Profile;
+        string port = profile.Serial.PortName;
+        CloseTab(tab);
+        SetStatus($"正在重新连接 {port}…");
         StartSession(profile, new SerialConnection(profile.Serial));
     }
 

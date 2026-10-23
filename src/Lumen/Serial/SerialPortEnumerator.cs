@@ -7,11 +7,21 @@ namespace Lumen.Serial;
 
 public sealed record SerialPortInfo(string PortName, string DisplayName, string Description)
 {
-    public bool IsUsb =>
-        DisplayName.Contains("USB", StringComparison.OrdinalIgnoreCase) ||
-        Description.Contains("USB", StringComparison.OrdinalIgnoreCase);
+    public bool IsBluetooth =>
+        Has("Bluetooth") || Has("蓝牙") || Has("BTHENUM");
 
-    public override string ToString() => $"{PortName}  —  {DisplayName}";
+    public bool IsUsb =>
+        !IsBluetooth &&
+        (DisplayName.Contains("USB", StringComparison.OrdinalIgnoreCase) ||
+         Description.Contains("USB", StringComparison.OrdinalIgnoreCase));
+
+    public string KindLabel => IsBluetooth ? "BT" : IsUsb ? "USB" : "";
+
+    public override string ToString() => $"{PortName} · {DisplayName}";
+
+    private bool Has(string value) =>
+        DisplayName.Contains(value, StringComparison.OrdinalIgnoreCase) ||
+        Description.Contains(value, StringComparison.OrdinalIgnoreCase);
 }
 
 public static partial class SerialPortEnumerator

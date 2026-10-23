@@ -33,6 +33,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="52" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding PortName}" FontSize="12" FontWeight="SemiBold" />
                 <TextBlock Grid.Column="1"
@@ -40,6 +41,12 @@
                            FontSize="11"
                            Foreground="{StaticResource Brush.TextMuted}"
                            TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2"
+                           Text="{Binding KindLabel}"
+                           FontSize="10"
+                           Foreground="{StaticResource Brush.Accent}"
+                           Margin="6,0,0,0"
                            VerticalAlignment="Center" />
             </Grid>
         </DataTemplate>
@@ -384,6 +391,11 @@
                                         Orientation="Horizontal"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Center">
+                                <Button x:Name="ReconnectButton"
+                                        Content="重连"
+                                        Style="{StaticResource BtnTool}"
+                                        ToolTip="关闭当前标签并重新连接串口"
+                                        Click="Reconnect_Click" />
                                 <Button x:Name="BreakButton"
                                         Content="Break"
                                         Style="{StaticResource BtnTool}"

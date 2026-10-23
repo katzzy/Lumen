@@ -41,6 +41,7 @@ public sealed class TerminalView : FrameworkElement
     private bool _hasSelection;
     private string _searchText = "";
     private readonly List<(int Line, int Col, int Len)> _matches = new();
+    private readonly Dictionary<int, List<int>> _matchesByLine = new();
     private int _matchIndex = -1;
 
     public TerminalView()
@@ -391,12 +392,16 @@ public sealed class TerminalView : FrameworkElement
         }
 
         // search hits
-        foreach (var match in _matches)
+        if (_matchesByLine.TryGetValue(lineIndex, out var lineMatches))
         {
-            if (match.Line != lineIndex) continue;
-            bool current = _matches.IndexOf(match) == _matchIndex;
-            uint color = current ? 0x99F0B429u : 0x55F0B429u;
-            dc.DrawRectangle(Brush(color), null, new Rect(PadX + match.Col * _cellW, y, match.Len * _cellW, _cellH));
+            foreach (int matchIndex in lineMatches)
+            {
+                var match = _matches[matchIndex];
+                bool current = matchIndex == _matchIndex;
+                uint color = current ? 0x99F0B429u : 0x55F0B429u;
+                dc.DrawRectangle(Brush(color), null,
+                    new Rect(PadX + match.Col * _cellW, y, match.Len * _cellW, _cellH));
+            }
         }
 
         // text runs
@@ -791,7 +796,7 @@ public sealed class TerminalView : FrameworkElement
                 var cell = line.Cells[c];
                 if ((cell.Flags & CellFlags.WideTail) != 0) continue;
                 if (cell.Rune == 0) continue;
-                lineText.Append(cell.Rune <= 0xFFFF ? (char)cell.Rune : ' ');
+                lineText.Append(cell.Rune <= 0xFFFF ? (char)cell.Rune : char.ConvertFromUtf32(cell.Rune));
                 if (cell.Combining is not null) lineText.Append(cell.Combining);
             }
             sb.Append(lineText.ToString().TrimEnd());
@@ -826,6 +831,7 @@ public sealed class TerminalView : FrameworkElement
     {
         _searchText = query ?? "";
         _matches.Clear();
+        _matchesByLine.Clear();
         _matchIndex = -1;
         if (_session is null || _searchText.Length == 0)
         {
@@ -839,19 +845,47 @@ public sealed class TerminalView : FrameworkElement
         {
             var line = buffer.GetDisplayLine(i);
             if (line is null) continue;
-            var text = line.GetText();
+
+            var (text, cellAtChar) = line.GetTextWithCells();
+            if (text.Length == 0) continue;
+
             int index = 0;
             while (index < text.Length)
             {
                 int found = text.IndexOf(_searchText, index, StringComparison.OrdinalIgnoreCase);
                 if (found < 0) break;
-                _matches.Add((i, found, _searchText.Length));
+                int endChar = found + _searchText.Length - 1;
+                if (endChar < cellAtChar.Length)
+                {
+                    int startCell = cellAtChar[found];
+                    int endCell = cellAtChar[endChar];
+                    int width = CellWidth(line, endCell);
+                    int length = Math.Max(1, endCell - startCell + width);
+                    _matches.Add((i, startCell, length));
+                }
                 index = found + Math.Max(1, _searchText.Length);
             }
         }
 
+        for (int i = 0; i < _matches.Count; i++)
+        {
+            var match = _matches[i];
+            if (!_matchesByLine.TryGetValue(match.Line, out var list))
+            {
+                list = new List<int>();
+                _matchesByLine[match.Line] = list;
+            }
+            list.Add(i);
+        }
+
         InvalidateVisual();
         return _matches.Count;
+    }
+
+    private static int CellWidth(TerminalLine line, int cellIndex)
+    {
+        if (cellIndex < 0 || cellIndex >= line.Cells.Length) return 1;
+        return (line.Cells[cellIndex].Flags & CellFlags.Wide) != 0 ? 2 : 1;
     }
 
     public bool FindNext(bool forward)
@@ -882,6 +916,7 @@ public sealed class TerminalView : FrameworkElement
     {
         _searchText = "";
         _matches.Clear();
+        _matchesByLine.Clear();
         _matchIndex = -1;
         InvalidateVisual();
     }
