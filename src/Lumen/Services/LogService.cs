@@ -83,10 +83,11 @@ public sealed class LogService : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         var writer = new StreamWriter(stream, encoding) { AutoFlush = false };
-        var queue = Channel.CreateUnbounded<LogEntry>(new UnboundedChannelOptions
+        var queue = Channel.CreateBounded<LogEntry>(new BoundedChannelOptions(8192)
         {
             SingleReader = true,
-            SingleWriter = false
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropOldest
         });
 
         lock (_gate)
@@ -152,7 +153,7 @@ public sealed class LogService : IDisposable
         queue.Writer.TryComplete();
         try
         {
-            worker?.Wait(3000);
+            worker?.Wait(1500);
         }
         catch
         {

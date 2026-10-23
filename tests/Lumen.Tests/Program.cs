@@ -84,6 +84,16 @@ string heightText = string.Join("|", Enumerable.Range(0, heightBuffer.TotalDispl
 Check("height resize preserves text",
     heightText.Contains("line0") && heightText.Contains("line3") && heightBuffer.Rows == 2, heightText);
 
+var ringBuffer = new ScreenBuffer(40, 3) { ScrollbackLimit = 10 };
+for (int i = 0; i < 25; i++)
+{
+    ringBuffer.PrintString($"ring{i:D2}");
+    ringBuffer.CarriageReturn();
+    ringBuffer.LineFeed();
+}
+Check("scrollback ring cap", ringBuffer.ScrollbackCount == 10 && ringBuffer.ScrollbackLimit == 10,
+    $"count={ringBuffer.ScrollbackCount} cap={ringBuffer.ScrollbackLimit}");
+
 var fullBuffer = new ScreenBuffer(100, 5);
 for (int i = 0; i < 700; i++)
 {

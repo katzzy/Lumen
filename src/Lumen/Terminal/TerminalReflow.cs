@@ -29,12 +29,13 @@ public static class TerminalReflow
         }
 
         int index = 0;
+        var cells = new List<Cell>(1024);
         while (index < source.Count)
         {
             int start = index;
             while (index + 1 < source.Count && source[index].Wrapped) index++;
             int end = index;
-            ReflowGroup(source, start, end, columns, cursorLine, cursorColumn, result);
+            ReflowGroup(source, start, end, columns, cursorLine, cursorColumn, result, cells);
             index++;
         }
 
@@ -51,7 +52,8 @@ public static class TerminalReflow
         int columns,
         int cursorLine,
         int cursorColumn,
-        ReflowResult result)
+        ReflowResult result,
+        List<Cell> cells)
     {
         int groupStart = result.Lines.Count;
         bool cursorInGroup = cursorLine >= start && cursorLine <= end;
@@ -66,7 +68,7 @@ public static class TerminalReflow
             cursorOffset += Math.Min(cursorColumn, source[cursorLine].Cells.Length);
         }
 
-        var cells = new List<Cell>();
+        cells.Clear();
         for (int line = start; line <= end; line++)
         {
             cells.AddRange(source[line].Cells);

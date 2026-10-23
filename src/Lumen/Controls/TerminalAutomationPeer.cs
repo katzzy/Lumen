@@ -8,6 +8,8 @@ namespace Lumen.Controls;
 public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer, ITextProvider
 {
     private readonly TerminalView _terminal;
+    private string? _textCache;
+    private long _textCacheAt;
 
     public TerminalAutomationPeer(TerminalView owner) : base(owner)
     {
@@ -43,5 +45,12 @@ public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer, ITe
 
     public ITextRangeProvider RangeFromPoint(Point screenLocation) => DocumentRange;
 
-    internal string GetTextSnapshot() => _terminal.GetAutomationText();
+    internal string GetTextSnapshot()
+    {
+        long now = Environment.TickCount64;
+        if (_textCache is not null && now - _textCacheAt < 250) return _textCache;
+        _textCache = _terminal.GetAutomationText();
+        _textCacheAt = now;
+        return _textCache;
+    }
 }

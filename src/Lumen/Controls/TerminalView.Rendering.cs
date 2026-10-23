@@ -8,10 +8,37 @@ namespace Lumen.Controls;
 
 public sealed partial class TerminalView
 {
+    private FormattedText GetFormattedText(string text, CellFlags flags, uint color)
+    {
+        var key = (text, color, flags & (CellFlags.Bold | CellFlags.Italic));
+        if (_formattedCache.TryGetValue(key, out var cached)) return cached;
+
+        if (_formattedCache.Count >= 4096) _formattedCache.Clear();
+        var formatted = new FormattedText(
+            text,
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            PickTypeface(flags),
+            _fontSize,
+            Brush(color),
+            VisualTreeHelper.GetDpi(this).PixelsPerDip)
+        {
+            TextAlignment = TextAlignment.Left
+        };
+        _formattedCache[key] = formatted;
+        return formatted;
+    }
+
+    private static void EvictOldest<TKey, TValue>(Dictionary<TKey, TValue> cache, int count)
+        where TKey : notnull
+    {
+        foreach (var key in cache.Keys.Take(count).ToArray()) cache.Remove(key);
+    }
+
     private SolidColorBrush Brush(uint argb)
     {
         if (_brushes.TryGetValue(argb, out var brush)) return brush;
-        if (_brushes.Count >= 2048) _brushes.Clear();
+        if (_brushes.Count >= 2048) EvictOldest(_brushes, 1024);
         var color = Color.FromArgb((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
         brush = new SolidColorBrush(color);
         brush.Freeze();
@@ -23,7 +50,7 @@ public sealed partial class TerminalView
     {
         uint key = argb ^ (uint)(thickness * 10);
         if (_pens.TryGetValue(key, out var pen)) return pen;
-        if (_pens.Count >= 512) _pens.Clear();
+        if (_pens.Count >= 512) EvictOldest(_pens, 256);
         pen = new Pen(Brush(argb), thickness);
         pen.Freeze();
         _pens[key] = pen;
@@ -216,19 +243,7 @@ public sealed partial class TerminalView
                 continue;
             }
 
-            var typeface = PickTypeface(runFlags);
-            var brush = Brush(WithAlpha(runFg, (runFlags & CellFlags.Dim) != 0 ? (byte)150 : (byte)255));
-            var ft = new FormattedText(
-                sb.ToString(),
-                CultureInfo.CurrentUICulture,
-                FlowDirection.LeftToRight,
-                typeface,
-                _fontSize,
-                brush,
-                VisualTreeHelper.GetDpi(this).PixelsPerDip)
-            {
-                TextAlignment = TextAlignment.Left
-            };
+            var ft = GetFormattedText(sb.ToString(), runFlags, WithAlpha(runFg, (runFlags & CellFlags.Dim) != 0 ? (byte)150 : (byte)255));
 
             double x = SnapX(PadX + start * _cellW);
             double top = SnapY(y + _baselineFromTop - ft.Baseline);
@@ -271,15 +286,7 @@ public sealed partial class TerminalView
     {
         var text = RuneText(cell);
         if (text.Length == 0) return;
-        var typeface = PickTypeface(cell.Flags);
-        var ft = new FormattedText(
-            text,
-            CultureInfo.CurrentUICulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            _fontSize,
-            Brush(fg),
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var ft = GetFormattedText(text, cell.Flags, fg);
         double x = SnapX(PadX + col * _cellW);
         double top = SnapY(y + _baselineFromTop - ft.Baseline);
         var guidelines = new GuidelineSet();
@@ -344,7 +351,14 @@ public sealed partial class TerminalView
         return (fg, bg);
     }
 
-    private uint ResolveBg(Cell cell) => ResolveColors(cell, false, Palette).Bg;
+    private uint ResolveBg(Cell cell)
+    {
+        if ((cell.Flags & CellFlags.Reverse) == 0)
+        {
+            return cell.Bg == 0 ? Palette.DefaultBackground : cell.Bg;
+        }
+        return ResolveColors(cell, false, Palette).Bg;
+    }
 
     private static uint WithAlpha(uint color, byte alpha) => (color & 0x00FFFFFFu) | ((uint)alpha << 24);
 

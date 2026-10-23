@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Lumen.Models;
@@ -204,32 +205,42 @@ internal sealed class Win32SerialPort : IDisposable
     public void Write(ReadOnlySpan<byte> data)
     {
         if (data.Length == 0) return;
-        var bytes = data.ToArray();
-        lock (_writeLock)
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(data.Length);
+        data.CopyTo(bytes);
+        try
         {
-            IntPtr handle;
-            lock (_stateLock) handle = _handle;
-            if (handle == InvalidHandleValue || handle == IntPtr.Zero)
+            lock (_writeLock)
             {
-                throw new SerialException("串口未打开。");
-            }
+                IntPtr handle;
+                lock (_stateLock) handle = _handle;
+                if (handle == InvalidHandleValue || handle == IntPtr.Zero)
+                {
+                    throw new SerialException("串口未打开。");
+                }
 
-            int offset = 0;
-            while (offset < bytes.Length)
-            {
-                var chunk = offset == 0 ? bytes : bytes[offset..];
-                if (!WriteFile(handle, chunk, (uint)chunk.Length, out uint written, IntPtr.Zero))
+                int length = data.Length;
+                int offset = 0;
+                while (offset < length)
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    throw new SerialException(FriendlyError("串口写入", err), new Win32Exception(err));
+                    int remaining = length - offset;
+                    byte[] chunk = offset == 0 ? bytes : bytes[offset..length];
+                    if (!WriteFile(handle, chunk, (uint)remaining, out uint written, IntPtr.Zero))
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        throw new SerialException(FriendlyError("串口写入", err), new Win32Exception(err));
+                    }
+                    if (written == 0)
+                    {
+                        throw new SerialException($"串口写入返回 0 字节（已写 {offset}/{length}）。");
+                    }
+                    offset += (int)written;
                 }
-                if (written == 0)
-                {
-                    throw new SerialException($"串口写入返回 0 字节（已写 {offset}/{bytes.Length}）。");
-                }
-                offset += (int)written;
+                BytesSent += length;
             }
-            BytesSent += offset;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
         }
     }
 

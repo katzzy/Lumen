@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
@@ -16,6 +17,8 @@ public sealed class TerminalSession : IDisposable
     private Decoder _decoder;
     private Encoding _encoding;
     private readonly SynchronizationContext _ui;
+    private readonly ConcurrentQueue<byte[]> _receiveQueue = new();
+    private int _receiveScheduled;
     private readonly LogService _log = new();
     private readonly StringBuilder _detectBuffer = new();
     private VendorProfile? _vendor;
@@ -119,7 +122,21 @@ public sealed class TerminalSession : IDisposable
     private void OnDataReceived(byte[] data)
     {
         if (_disposed) return;
-        _ui.Post(_ => Feed(data), null);
+        _receiveQueue.Enqueue(data);
+        if (Interlocked.Exchange(ref _receiveScheduled, 1) == 0)
+        {
+            _ui.Post(_ => DrainReceiveQueue(), null);
+        }
+    }
+
+    private void DrainReceiveQueue()
+    {
+        _receiveScheduled = 0;
+        while (_receiveQueue.TryDequeue(out var data))
+        {
+            if (_disposed) return;
+            Feed(data);
+        }
     }
 
     private void Feed(byte[] data)

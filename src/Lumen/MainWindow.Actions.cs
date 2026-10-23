@@ -184,31 +184,63 @@ public partial class MainWindow
 
     private void HideFind()
     {
+        _findSearchCts?.Cancel();
+        _findSearchCts = null;
         if (FindBar.Visibility != Visibility.Visible) return;
         FindBar.Visibility = Visibility.Collapsed;
         _active?.View.ClearSearch();
     }
 
-    private void FindBox_TextChanged(object sender, TextChangedEventArgs e)
+    private async void FindBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_active is null) return;
-        int count = _active.View.SetSearch(FindBox.Text);
+        _findSearchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _findSearchCts = cts;
+        var tab = _active;
+        if (tab is null)
+        {
+            FindCount.Text = "0 项";
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(150, cts.Token);
+            int count = await tab.View.SetSearchAsync(FindBox.Text, cts.Token);
+            if (cts.IsCancellationRequested || !ReferenceEquals(tab, _active)) return;
+            FindCount.Text = $"{count} 项";
+            if (count > 0) tab.View.FindNext(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer keystroke superseded this search.
+        }
+    }
+
+    private async void FindPrev_Click(object sender, RoutedEventArgs e)
+    {
+        var tab = _active;
+        if (tab is null) return;
+        _findSearchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _findSearchCts = cts;
+        int count = await tab.View.SetSearchAsync(FindBox.Text, cts.Token);
+        if (cts.IsCancellationRequested || !ReferenceEquals(tab, _active)) return;
         FindCount.Text = $"{count} 项";
-        if (count > 0) _active.View.FindNext(true);
+        if (count > 0) tab.View.FindNext(false);
     }
 
-    private void FindPrev_Click(object sender, RoutedEventArgs e)
+    private async void FindNext_Click(object sender, RoutedEventArgs e)
     {
-        if (_active is null) return;
-        _active.View.SetSearch(FindBox.Text);
-        _active.View.FindNext(false);
-    }
-
-    private void FindNext_Click(object sender, RoutedEventArgs e)
-    {
-        if (_active is null) return;
-        _active.View.SetSearch(FindBox.Text);
-        _active.View.FindNext(true);
+        var tab = _active;
+        if (tab is null) return;
+        _findSearchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _findSearchCts = cts;
+        int count = await tab.View.SetSearchAsync(FindBox.Text, cts.Token);
+        if (cts.IsCancellationRequested || !ReferenceEquals(tab, _active)) return;
+        FindCount.Text = $"{count} 项";
+        if (count > 0) tab.View.FindNext(true);
     }
 
     private void FindClose_Click(object sender, RoutedEventArgs e)

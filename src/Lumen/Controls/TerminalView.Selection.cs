@@ -2,6 +2,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Lumen.Terminal;
 
 namespace Lumen.Controls;
@@ -236,6 +237,39 @@ public sealed partial class TerminalView
 
     public int SetSearch(string query)
     {
+        _searchVersion++;
+        if (!BeginSearch(query)) return 0;
+
+        var buffer = _session!.Buffer;
+        int total = buffer.TotalDisplayLines;
+        for (int i = 0; i < total; i++) AddMatchesForLine(buffer, i);
+        return FinishSearch();
+    }
+
+    /// <summary>
+    /// Chunked search used by the find bar. It yields to the dispatcher between
+    /// batches so a 10k-line scrollback cannot freeze the UI for ~50ms per key.
+    /// </summary>
+    public async Task<int> SetSearchAsync(string query, CancellationToken token)
+    {
+        int version = ++_searchVersion;
+        if (!BeginSearch(query)) return 0;
+
+        var buffer = _session!.Buffer;
+        int total = buffer.TotalDisplayLines;
+        for (int i = 0; i < total; i++)
+        {
+            if (token.IsCancellationRequested || version != _searchVersion) return 0;
+            AddMatchesForLine(buffer, i);
+            if ((i & 255) == 0) await Dispatcher.Yield(DispatcherPriority.Background);
+        }
+
+        if (token.IsCancellationRequested || version != _searchVersion) return 0;
+        return FinishSearch();
+    }
+
+    private bool BeginSearch(string query)
+    {
         _searchText = query ?? "";
         _matches.Clear();
         _matchesByLine.Clear();
@@ -243,37 +277,39 @@ public sealed partial class TerminalView
         if (_session is null || _searchText.Length == 0)
         {
             InvalidateVisual();
-            return 0;
+            return false;
         }
+        return true;
+    }
 
-        var buffer = _session.Buffer;
-        int total = buffer.TotalDisplayLines;
-        for (int i = 0; i < total; i++)
+    private void AddMatchesForLine(ScreenBuffer buffer, int lineIndex)
+    {
+        var line = buffer.GetDisplayLine(lineIndex);
+        if (line is null) return;
+
+        var (text, cellAtChar) = line.GetTextWithCells();
+        if (text.Length == 0) return;
+
+        int index = 0;
+        while (index < text.Length)
         {
-            var line = buffer.GetDisplayLine(i);
-            if (line is null) continue;
-
-            var (text, cellAtChar) = line.GetTextWithCells();
-            if (text.Length == 0) continue;
-
-            int index = 0;
-            while (index < text.Length)
+            int found = text.IndexOf(_searchText, index, StringComparison.OrdinalIgnoreCase);
+            if (found < 0) break;
+            int endChar = found + _searchText.Length - 1;
+            if (endChar < cellAtChar.Length)
             {
-                int found = text.IndexOf(_searchText, index, StringComparison.OrdinalIgnoreCase);
-                if (found < 0) break;
-                int endChar = found + _searchText.Length - 1;
-                if (endChar < cellAtChar.Length)
-                {
-                    int startCell = cellAtChar[found];
-                    int endCell = cellAtChar[endChar];
-                    int width = CellWidth(line, endCell);
-                    int length = Math.Max(1, endCell - startCell + width);
-                    _matches.Add((i, startCell, length));
-                }
-                index = found + Math.Max(1, _searchText.Length);
+                int startCell = cellAtChar[found];
+                int endCell = cellAtChar[endChar];
+                int width = CellWidth(line, endCell);
+                int length = Math.Max(1, endCell - startCell + width);
+                _matches.Add((lineIndex, startCell, length));
             }
+            index = found + Math.Max(1, _searchText.Length);
         }
+    }
 
+    private int FinishSearch()
+    {
         for (int i = 0; i < _matches.Count; i++)
         {
             var match = _matches[i];
@@ -321,6 +357,7 @@ public sealed partial class TerminalView
 
     public void ClearSearch()
     {
+        _searchVersion++;
         _searchText = "";
         _matches.Clear();
         _matchesByLine.Clear();

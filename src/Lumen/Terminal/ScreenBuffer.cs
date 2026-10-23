@@ -14,7 +14,7 @@ public sealed class ScreenBuffer
     private TerminalLine[] _main = Array.Empty<TerminalLine>();
     private TerminalLine[] _alt = Array.Empty<TerminalLine>();
     private bool _altActive;
-    private readonly List<TerminalLine> _scrollback = new();
+    private readonly ScrollbackBuffer _scrollback = new(10000);
     private Cell _pen = Cell.Empty;
     private bool[] _tabStops = Array.Empty<bool>();
     private int _scrollTop;
@@ -45,7 +45,11 @@ public sealed class ScreenBuffer
     public bool IsAltScreen => _altActive;
     public int ScrollTop => _scrollTop;
     public int ScrollBottom => _scrollBottom;
-    public int ScrollbackLimit { get; set; } = 10000;
+    public int ScrollbackLimit
+    {
+        get => _scrollback.Capacity;
+        set => _scrollback.TrimTo(Math.Max(0, value));
+    }
     public IReadOnlyList<TerminalLine> Scrollback => _scrollback;
     public int ScrollbackCount => _scrollback.Count;
     public long TotalPrinted { get; internal set; }
@@ -155,7 +159,7 @@ public sealed class ScreenBuffer
         _savedAlt.Col = Math.Clamp(_savedAlt.Col, 0, columns - 1);
 
         RebuildTabStops(oldColumns, columns);
-        while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
+        _scrollback.TrimTo(ScrollbackLimit);
     }
 
     private bool ResizeWithReflow(int newColumns, int newRows, int cursorRow, int cursorCol, int scrollbackBudget)
@@ -184,7 +188,7 @@ public sealed class ScreenBuffer
         for (int i = 0; i < prefixCount; i++) scrollback.Add(_scrollback[i]);
         for (int i = 0; i < mainStart; i++) scrollback.Add(main.Lines[i]);
         _scrollback.Clear();
-        _scrollback.AddRange(scrollback);
+        for (int i = 0; i < scrollback.Count; i++) _scrollback.Add(scrollback[i]);
 
         _main = new TerminalLine[newRows];
         for (int r = 0; r < newRows; r++)
@@ -226,10 +230,92 @@ public sealed class ScreenBuffer
     public void ReflowAll()
     {
         if (!NeedsFullReflow) return;
-        NeedsFullReflow = false;
-        ResizeWithReflow(Columns, Rows, CursorRow, CursorCol, int.MaxValue);
-        while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
+        var job = CreateReflowJob();
+        if (job is null)
+        {
+            NeedsFullReflow = false;
+            return;
+        }
+
+        var result = TerminalReflow.Reflow(job.Source, Columns, job.CursorLine, job.CursorColumn);
+        ApplyReflow(job, result);
     }
+
+    public ReflowJob? CreateReflowJob()
+    {
+        if (!NeedsFullReflow || _altActive) return null;
+
+        var source = new List<TerminalLine>(_scrollback.Count + _main.Length);
+        for (int i = 0; i < _scrollback.Count; i++) source.Add(_scrollback[i]);
+        foreach (var line in _main)
+        {
+            var clone = new TerminalLine(line.Cells.Length) { Wrapped = line.Wrapped };
+            Array.Copy(line.Cells, clone.Cells, line.Cells.Length);
+            source.Add(clone);
+        }
+
+        return new ReflowJob(
+            source,
+            _scrollback.Count + CursorRow,
+            CursorCol,
+            Columns,
+            Rows,
+            ComputeSignature());
+    }
+
+    public bool IsReflowJobValid(ReflowJob job) =>
+        !_altActive && job.Columns == Columns && job.Rows == Rows && job.Signature == ComputeSignature();
+
+    public void ApplyReflow(ReflowJob job, ReflowResult result)
+    {
+        if (!IsReflowJobValid(job)) return;
+
+        int start = Math.Max(0, result.Lines.Count - Rows);
+        _scrollback.Clear();
+        for (int i = 0; i < start; i++) _scrollback.Add(result.Lines[i]);
+
+        _main = new TerminalLine[Rows];
+        for (int r = 0; r < Rows; r++)
+        {
+            int index = start + r;
+            _main[r] = index < result.Lines.Count ? result.Lines[index] : new TerminalLine(Columns);
+        }
+
+        CursorRow = Math.Clamp(result.CursorLine - start, 0, Rows - 1);
+        CursorCol = Math.Clamp(result.CursorColumn, 0, Columns - 1);
+        NeedsFullReflow = false;
+        _scrollback.TrimTo(ScrollbackLimit);
+    }
+
+    private long ComputeSignature()
+    {
+        var hash = new HashCode();
+        hash.Add(Columns);
+        hash.Add(Rows);
+        hash.Add(_scrollback.Count);
+        hash.Add(CursorRow);
+        hash.Add(CursorCol);
+        hash.Add(TotalPrinted);
+        foreach (var line in _main)
+        {
+            foreach (var cell in line.Cells)
+            {
+                hash.Add(cell.Rune);
+                hash.Add(cell.Fg);
+                hash.Add(cell.Bg);
+                hash.Add((ushort)cell.Flags);
+            }
+        }
+        return hash.ToHashCode();
+    }
+
+    public sealed record ReflowJob(
+        List<TerminalLine> Source,
+        int CursorLine,
+        int CursorColumn,
+        int Columns,
+        int Rows,
+        long Signature);
 
     private void ResizeHeight(int newRows)
     {
@@ -455,7 +541,6 @@ public sealed class ScreenBuffer
     private void AddScrollback(TerminalLine line)
     {
         _scrollback.Add(line);
-        while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
     }
 
     public void ClearScrollback() => _scrollback.Clear();

@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private TabEntry? _active;
     private IntPtr _hwnd;
     private bool _suppressToggle;
+    private CancellationTokenSource? _findSearchCts;
 
     public MainWindow(AppSettings settings, SessionStore store, string[] args)
     {

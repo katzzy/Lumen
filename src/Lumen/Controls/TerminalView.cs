@@ -18,6 +18,7 @@ public sealed partial class TerminalView : FrameworkElement
 
     private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
     private readonly Dictionary<uint, Pen> _pens = new();
+    private readonly Dictionary<(string Text, uint Color, CellFlags Flags), FormattedText> _formattedCache = new();
     private readonly DispatcherTimer _cursorTimer;
     private readonly DispatcherTimer _fullReflowTimer;
     private Typeface _regular = null!;
@@ -45,6 +46,7 @@ public sealed partial class TerminalView : FrameworkElement
     private readonly List<(int Line, int Col, int Len)> _matches = new();
     private readonly Dictionary<int, List<int>> _matchesByLine = new();
     private int _matchIndex = -1;
+    private int _searchVersion;
 
     public TerminalView()
     {
@@ -71,13 +73,33 @@ public sealed partial class TerminalView : FrameworkElement
         };
 
         _fullReflowTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _fullReflowTimer.Tick += (_, _) =>
+        _fullReflowTimer.Tick += async (_, _) =>
         {
             _fullReflowTimer.Stop();
             if (_session is null) return;
-            _session.Buffer.ReflowAll();
-            _lastScrollbackCount = _session.Buffer.ScrollbackCount;
-            InvalidateVisual();
+            var buffer = _session.Buffer;
+            var job = buffer.CreateReflowJob();
+            if (job is null) return;
+
+            try
+            {
+                var result = await Task.Run(() =>
+                    TerminalReflow.Reflow(job.Source, job.Columns, job.CursorLine, job.CursorColumn));
+                if (buffer.IsReflowJobValid(job))
+                {
+                    buffer.ApplyReflow(job, result);
+                    _lastScrollbackCount = buffer.ScrollbackCount;
+                    InvalidateVisual();
+                }
+                else if (buffer.NeedsFullReflow)
+                {
+                    _fullReflowTimer.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.LogError("full reflow", ex);
+            }
         };
 
         TextCompositionManager.AddPreviewTextInputStartHandler(this, OnImeComposition);
@@ -222,6 +244,7 @@ public sealed partial class TerminalView : FrameworkElement
                 _baselineFromTop = SnapY(_fontSize);
             }
             _brushCacheClear();
+            _formattedCache.Clear();
         }
         catch
         {

@@ -35,7 +35,7 @@ if (Test-Path (Join-Path $root "screenshot.png")) {
 }
 
 if (-not $NoZip) {
-    $zip = Join-Path $root "dist\Lumen-1.1.8-win-x64.zip"
+    $zip = Join-Path $root "dist\Lumen-1.1.9-win-x64.zip"
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLevel Optimal
     Write-Host "Package: $zip"
