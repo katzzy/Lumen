@@ -127,8 +127,6 @@ tests/Lumen.Tests/  自检
 
 MIT，详见 [LICENSE](LICENSE)。
 
-SecureCRT 是 VanDyke Software 的商标；Lumen 与 VanDyke Software 无关联。
-
 ---
 
 Lumen Terminal 1.1.13
