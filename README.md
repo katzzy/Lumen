@@ -1,4 +1,4 @@
-# Lumen Terminal 1.0
+# Lumen Terminal 1.1.0
 
 面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
 
@@ -13,9 +13,35 @@
 - **现代界面**：深色 Fluent 风格、自定义标题栏、标签页、自绘终端网格、等宽字体、清晰的中文回退。
 - **原生且轻**：单文件夹、免安装运行时（self-contained），可放在 U 盘里带走。
 
+## 厂商适配
+
+内置 13 家厂商模板，新建/编辑会话时选择厂商即可带出默认波特率、编码、分页命令和快捷命令；也可以在连接后根据设备启动信息自动识别。
+
+| 厂商 | 默认串口 | 自动关闭分页 | 编码 |
+|---|---|---|---|
+| Cisco IOS / IOS-XE | 9600 8N1 | `terminal length 0` | UTF-8 |
+| 华为 VRP | 9600 8N1 | `screen-length 0 temporary` | GBK |
+| H3C Comware | 9600 8N1 | `screen-length disable` | GBK |
+| 中兴 ZXR10 | 9600 8N1 | `terminal length 0` | GBK |
+| 锐捷 RGOS | 9600 8N1 | `terminal length 0` | GBK |
+| 迈普 MyPower | 9600 8N1 | `terminal length 0` | GBK |
+| TP-Link JetStream | 9600 8N1 | `terminal length 0` | GBK |
+| Juniper Junos | 9600 8N1 | `set cli screen-length 0` | UTF-8 |
+| Arista EOS | 9600 8N1 | `terminal length 0` | UTF-8 |
+| Aruba / HPE | 9600 8N1 | `no page` | UTF-8 |
+| Dell OS10 / OS9 | 9600 8N1 | `terminal length 0` | UTF-8 |
+| Extreme EXOS | 9600 8N1 | `disable clipaging` | UTF-8 |
+| MikroTik RouterOS | 115200 8N1 | 不发送 | UTF-8 |
+
+- **自动识别**：连接后读取设备 Banner，识别到厂商后自动切换编码、应用快捷命令，并在首次出现登录提示符后发送分页命令。
+- **手动选择**：如果设备启动时没有 Banner（例如已经登录），在会话编辑器的「厂商」里选择对应模板，点「套用厂商模板」即可。
+- **通用 VT100**：不属于以上厂商时选「通用」，不会自动发送任何命令。
+- 分页命令与中文编码以设备手册和实际输出为准；国产设备中文乱码时优先切 GBK。
+
+
 ## 快速开始
 
-1. 解压 `Lumen-1.0-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
+1. 解压 `Lumen-1.1.0-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
 2. 双击 `Lumen.exe`。
 3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
 4. 没有设备也可以点「打开演示会话」体验完整界面。
@@ -49,7 +75,7 @@
 
 ## 当前版本边界
 
-1.0 专注串口，以下功能**尚未包含**（架构已预留）：
+1.1 专注串口，以下功能**尚未包含**（架构已预留）：
 
 - SSH / Telnet / SFTP、端口转发、跳板机
 - XMODEM / YMODEM / ZMODEM 文件传输
@@ -96,4 +122,4 @@ src/Lumen/
 
 ---
 
-Lumen Terminal 1.0 · 为网络运维打造的串口控制台
+Lumen Terminal 1.1.0 · 为网络运维打造的串口控制台

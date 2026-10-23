@@ -209,7 +209,7 @@ public partial class MainWindow : Window
         }
 
         var session = new TerminalSession(profile, transport, _settings);
-        var tab = new TabEntry(profile, session) { Connecting = true };
+        var tab = new TabEntry(profile, session) { Connecting = true, AutoVendor = VendorCatalog.IsAuto(profile.VendorId) };
         var view = new TerminalView
         {
             Session = session,
@@ -238,6 +238,28 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_active, tab) && !string.IsNullOrWhiteSpace(session.Title))
             {
                 SetStatus($"设备标题：{session.Title}");
+            }
+        };
+        session.VendorDetected += vendor =>
+        {
+            tab.Profile.VendorId = vendor.Id;
+            tab.Profile.AutoPaging = !string.IsNullOrWhiteSpace(vendor.PagingCommand);
+            if (tab.AutoVendor)
+            {
+                tab.Profile.QuickCommands = vendor.QuickCommands.Select(q => q.Clone()).ToList();
+            }
+            if (string.Equals(session.Profile.Encoding, vendor.Encoding, StringComparison.OrdinalIgnoreCase))
+            {
+                tab.Profile.Encoding = vendor.Encoding;
+            }
+
+            UpdateTabVisual(tab);
+            if (ReferenceEquals(_active, tab))
+            {
+                UpdateToolbar();
+                ActiveSubtitle.Text = BuildSubtitle(tab);
+                EncodingText.Text = tab.Profile.Encoding.ToUpperInvariant();
+                SetStatus($"已识别厂商：{vendor.DisplayName}");
             }
         };
 
@@ -410,8 +432,10 @@ public partial class MainWindow : Window
     private static string BuildSubtitle(TabEntry tab)
     {
         var s = tab.Profile.Serial;
+        var vendor = VendorCatalog.Find(tab.Profile.VendorId);
+        var vendorName = vendor.Id == "auto" ? "自动" : vendor.Name;
         var state = tab.Session.IsConnected ? "已连接" : tab.Connecting ? "连接中…" : "未连接";
-        return $"{s.PortName} · {s.BaudRate} · {s.DataBits}{ParityLetter(s.Parity)}{StopLetter(s.StopBits)} · {state}";
+        return $"{vendorName} · {s.PortName} · {s.BaudRate} · {s.DataBits}{ParityLetter(s.Parity)}{StopLetter(s.StopBits)} · {state}";
     }
 
     private static string ParityLetter(SerialParity parity) => parity switch
@@ -845,8 +869,17 @@ public partial class MainWindow : Window
             {
                 tab.Profile.Name = updated.Name;
                 tab.Profile.Group = updated.Group;
+                tab.Profile.VendorId = updated.VendorId;
+                tab.Profile.Encoding = updated.Encoding;
+                tab.Profile.AutoPaging = updated.AutoPaging;
                 tab.TitleText.Text = updated.Name;
                 tab.View.TerminalFontSize = updated.FontSize;
+                UpdateTabVisual(tab);
+                if (ReferenceEquals(_active, tab))
+                {
+                    ActiveSubtitle.Text = BuildSubtitle(tab);
+                    EncodingText.Text = updated.Encoding.ToUpperInvariant();
+                }
             }
             HideOverlay();
             SetStatus(isNew
@@ -1225,5 +1258,6 @@ public partial class MainWindow : Window
         public Border Dot { get; set; } = null!;
         public Button CloseButton { get; set; } = null!;
         public bool Connecting { get; set; }
+        public bool AutoVendor { get; set; }
     }
 }

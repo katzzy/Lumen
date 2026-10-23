@@ -12,17 +12,27 @@ public partial class SessionEditorView : UserControl
 {
     private readonly SessionProfile _profile;
     private readonly ObservableCollection<QuickCommand> _commands;
+    private readonly bool _isNew;
     private List<SerialPortInfo> _ports;
+    private bool _vendorInitializing;
 
     public SessionEditorView(SessionProfile profile, IReadOnlyList<SerialPortInfo> ports, bool isNew = false)
     {
         InitializeComponent();
         _profile = profile;
+        _isNew = isNew;
         _ports = ports.ToList();
         _commands = new ObservableCollection<QuickCommand>(profile.QuickCommands.Select(q => q.Clone()));
         CommandsList.ItemsSource = _commands;
 
         HeaderText.Text = isNew ? "新建会话" : "编辑会话";
+
+        _vendorInitializing = true;
+        VendorBox.ItemsSource = VendorCatalog.All;
+        VendorBox.SelectedItem = VendorCatalog.Find(profile.VendorId);
+        AutoPagingCheck.IsChecked = profile.AutoPaging;
+        UpdateVendorHint();
+        _vendorInitializing = false;
 
         DataBitsBox.ItemsSource = new[] { "5", "6", "7", "8" };
         ParityBox.ItemsSource = new[] { "无 (N)", "奇 (O)", "偶 (E)", "Mark (M)", "Space (S)" };
@@ -120,6 +130,60 @@ public partial class SessionEditorView : UserControl
         _commands.Add(new QuickCommand { Name = "新命令", Command = "" });
     }
 
+    private void VendorBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_vendorInitializing) return;
+        UpdateVendorHint();
+
+        if (_isNew && VendorBox.SelectedItem is VendorProfile vendor && vendor.Id != "auto")
+        {
+            ApplyVendor(vendor);
+        }
+    }
+
+    private void ApplyVendor_Click(object sender, RoutedEventArgs e)
+    {
+        if (VendorBox.SelectedItem is VendorProfile vendor && vendor.Id != "auto")
+        {
+            ApplyVendor(vendor);
+        }
+    }
+
+    private void ApplyVendor(VendorProfile vendor)
+    {
+        BaudBox.Text = vendor.DefaultBaud.ToString();
+        EncodingBox.SelectedIndex = EncodingIndex(vendor.Encoding);
+        AutoPagingCheck.IsChecked = !string.IsNullOrWhiteSpace(vendor.PagingCommand);
+
+        _commands.Clear();
+        foreach (var command in vendor.QuickCommands)
+        {
+            _commands.Add(command.Clone());
+        }
+
+        UpdateVendorHint();
+    }
+
+    private void UpdateVendorHint()
+    {
+        var vendor = VendorBox.SelectedItem as VendorProfile;
+        if (vendor is null)
+        {
+            VendorHint.Text = "";
+            return;
+        }
+
+        if (vendor.Id == "auto")
+        {
+            VendorHint.Text = "根据设备启动信息自动识别厂商；识别后会按厂商命令自动关闭分页。";
+            return;
+        }
+
+        VendorHint.Text = string.IsNullOrWhiteSpace(vendor.Notes)
+            ? VendorCatalog.Describe(vendor)
+            : $"{VendorCatalog.Describe(vendor)} · {vendor.Notes}";
+    }
+
     private void RemoveCommand_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: QuickCommand command })
@@ -176,11 +240,13 @@ public partial class SessionEditorView : UserControl
         var updated = _profile.Clone();
         updated.Name = name;
         updated.Group = string.IsNullOrWhiteSpace(GroupBox.Text) ? "我的设备" : GroupBox.Text.Trim();
+        updated.VendorId = (VendorBox.SelectedItem as VendorProfile)?.Id ?? "auto";
         updated.Serial = serial;
         updated.Encoding = EncodingName(EncodingBox.SelectedIndex);
         updated.FontSize = fontSize;
         updated.LogDirectory = string.IsNullOrWhiteSpace(LogDirBox.Text) ? null : LogDirBox.Text.Trim();
         updated.AutoLog = AutoLogCheck.IsChecked == true;
+        updated.AutoPaging = AutoPagingCheck.IsChecked == true;
         updated.ConfirmDangerousPaste = ConfirmPasteCheck.IsChecked == true;
         updated.PasteLineDelayMs = delay;
         updated.InitCommands = InitCommandsBox.Text.Trim();

@@ -16,10 +16,12 @@ public sealed class SessionProfile
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "新会话";
     public string Group { get; set; } = "默认分组";
+    public string VendorId { get; set; } = "auto";
     public SerialConfig Serial { get; set; } = new();
     public string Encoding { get; set; } = "utf-8";
     public double FontSize { get; set; } = 14;
     public bool AutoLog { get; set; } = true;
+    public bool AutoPaging { get; set; } = true;
     public string? LogDirectory { get; set; }
     public int PasteLineDelayMs { get; set; } = 100;
     public string InitCommands { get; set; } = "";
