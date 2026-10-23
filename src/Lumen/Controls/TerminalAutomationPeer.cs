@@ -1,8 +1,11 @@
+using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 
 namespace Lumen.Controls;
 
-public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer
+public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer, ITextProvider
 {
     private readonly TerminalView _terminal;
 
@@ -23,4 +26,22 @@ public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer
     protected override bool IsControlElementCore() => true;
 
     protected override bool IsContentElementCore() => true;
+
+    public override object GetPattern(PatternInterface patternInterface) =>
+        patternInterface == PatternInterface.Text ? this : base.GetPattern(patternInterface);
+
+    public ITextRangeProvider DocumentRange =>
+        new TerminalTextRangeProvider(this, 0, GetTextSnapshot().Length);
+
+    public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.None;
+
+    public ITextRangeProvider[] GetSelection() => Array.Empty<ITextRangeProvider>();
+
+    public ITextRangeProvider[] GetVisibleRanges() => new ITextRangeProvider[] { DocumentRange };
+
+    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple child) => DocumentRange;
+
+    public ITextRangeProvider RangeFromPoint(Point screenLocation) => DocumentRange;
+
+    internal string GetTextSnapshot() => _terminal.GetAutomationText();
 }

@@ -1,4 +1,4 @@
-# Lumen Terminal 1.1.6
+# Lumen Terminal 1.1.7
 
 面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
 
@@ -43,7 +43,7 @@
 
 ## 快速开始
 
-1. 解压 `Lumen-1.1.6-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
+1. 解压 `Lumen-1.1.7-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
 2. 双击 `Lumen.exe`。
 3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
 4. 没有设备也可以点「打开演示会话」体验完整界面。
@@ -124,4 +124,4 @@ src/Lumen/
 
 ---
 
-Lumen Terminal 1.1.6 · 为网络运维打造的串口控制台
+Lumen Terminal 1.1.7 · 为网络运维打造的串口控制台

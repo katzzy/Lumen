@@ -3,6 +3,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Automation.Peers;
 using System.Windows.Threading;
@@ -78,6 +79,9 @@ public sealed class TerminalView : FrameworkElement
             _lastScrollbackCount = _session.Buffer.ScrollbackCount;
             InvalidateVisual();
         };
+
+        TextCompositionManager.AddPreviewTextInputStartHandler(this, OnImeComposition);
+        TextCompositionManager.AddPreviewTextInputUpdateHandler(this, OnImeComposition);
 
         ContextMenu = BuildContextMenu();
         ContextMenuOpening += (_, _) => UpdateContextMenu();
@@ -1095,6 +1099,32 @@ public sealed class TerminalView : FrameworkElement
         {
             _session.SendBytes(bytes);
             e.Handled = true;
+        }
+    }
+
+    private void OnImeComposition(object sender, TextCompositionEventArgs e) =>
+        UpdateImeCandidatePosition();
+
+    private void UpdateImeCandidatePosition()
+    {
+        if (_session is null || !IsVisible) return;
+        var window = Window.GetWindow(this);
+        if (window is null) return;
+
+        IntPtr hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        var buffer = _session.Buffer;
+        int row = Math.Clamp(buffer.CursorRow, 0, Math.Max(0, buffer.Rows - 1));
+        int col = Math.Clamp(buffer.CursorCol, 0, Math.Max(0, buffer.Columns - 1));
+        var caret = new Point(PadX + col * _cellW, PadY + row * _cellH + _cellH);
+        try
+        {
+            ImeCandidatePositioner.Set(hwnd, PointToScreen(caret));
+        }
+        catch
+        {
+            // The visual may not be connected to a presentation source yet.
         }
     }
 
