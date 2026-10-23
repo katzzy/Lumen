@@ -17,6 +17,7 @@ public sealed class TerminalView : FrameworkElement
     private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
     private readonly Dictionary<uint, Pen> _pens = new();
     private readonly DispatcherTimer _cursorTimer;
+    private readonly DispatcherTimer _fullReflowTimer;
     private Typeface _regular = null!;
     private Typeface _bold = null!;
     private Typeface _italic = null!;
@@ -66,6 +67,16 @@ public sealed class TerminalView : FrameworkElement
             InvalidateVisual();
         };
 
+        _fullReflowTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _fullReflowTimer.Tick += (_, _) =>
+        {
+            _fullReflowTimer.Stop();
+            if (_session is null) return;
+            _session.Buffer.ReflowAll();
+            _lastScrollbackCount = _session.Buffer.ScrollbackCount;
+            InvalidateVisual();
+        };
+
         ContextMenu = BuildContextMenu();
         ContextMenuOpening += (_, _) => UpdateContextMenu();
         RecalculateFont();
@@ -85,6 +96,7 @@ public sealed class TerminalView : FrameworkElement
             _session = value;
             _scrollOffset = 0;
             _lastScrollbackCount = value?.Buffer.ScrollbackCount ?? 0;
+            _fullReflowTimer.Stop();
             ClearSelection();
             ClearSearch();
             if (_session is not null)
@@ -275,6 +287,12 @@ public sealed class TerminalView : FrameworkElement
         {
             buffer.Resize(cols, rows);
             _scrollOffset = Math.Clamp(_scrollOffset, 0, MaxScrollOffset());
+            _lastScrollbackCount = buffer.ScrollbackCount;
+            if (buffer.NeedsFullReflow)
+            {
+                _fullReflowTimer.Stop();
+                _fullReflowTimer.Start();
+            }
         }
 
         int total = buffer.TotalDisplayLines;

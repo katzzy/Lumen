@@ -31,6 +31,7 @@ public sealed class ScreenBuffer
     public TerminalPalette Palette { get; set; } = TerminalPalette.Dark;
     public int Columns { get; private set; }
     public int Rows { get; private set; }
+    public bool NeedsFullReflow { get; private set; }
     public int CursorRow { get; private set; }
     public int CursorCol { get; private set; }
     public bool CursorVisible { get; set; } = true;
@@ -134,7 +135,7 @@ public sealed class ScreenBuffer
 
         if (columns != oldColumns)
         {
-            ResizeWithReflow(columns, rows, oldCursorRow, oldCursorCol);
+            NeedsFullReflow = ResizeWithReflow(columns, rows, oldCursorRow, oldCursorCol, 512);
         }
         else
         {
@@ -157,15 +158,14 @@ public sealed class ScreenBuffer
         while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
     }
 
-    private void ResizeWithReflow(int newColumns, int newRows, int cursorRow, int cursorCol)
+    private bool ResizeWithReflow(int newColumns, int newRows, int cursorRow, int cursorCol, int scrollbackBudget)
     {
         int mainCursorRow = _altActive ? _savedMain.Row : cursorRow;
         int mainCursorCol = _altActive ? _savedMain.Col : cursorCol;
 
         // Reflow only recent history plus the visible screen. Reflowing a full
-        // 10k-line scrollback on every drag frame would make the UI stutter, and
-        // older lines are still retained at their original width.
-        const int scrollbackBudget = 512;
+        // 10k-line scrollback on every drag frame would make the UI stutter;
+        // TerminalView schedules ReflowAll once resizing settles.
         int prefixCount = Math.Max(0, _scrollback.Count - scrollbackBudget);
         int recentCount = _scrollback.Count - prefixCount;
 
@@ -215,6 +215,20 @@ public sealed class ScreenBuffer
             _savedAlt.Row = Math.Clamp(alt.CursorLine - altStart, 0, newRows - 1);
             _savedAlt.Col = Math.Clamp(alt.CursorColumn, 0, newColumns - 1);
         }
+
+        return prefixCount > 0;
+    }
+
+    /// <summary>
+    /// Reflows the entire scrollback after the user has stopped resizing. This is
+    /// deliberately not done on every resize frame (a 10k-line reflow takes ~90ms).
+    /// </summary>
+    public void ReflowAll()
+    {
+        if (!NeedsFullReflow) return;
+        NeedsFullReflow = false;
+        ResizeWithReflow(Columns, Rows, CursorRow, CursorCol, int.MaxValue);
+        while (_scrollback.Count > ScrollbackLimit) _scrollback.RemoveAt(0);
     }
 
     private void ResizeHeight(int newRows)
