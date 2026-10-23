@@ -59,6 +59,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        LogService.WaitForPending(3000);
         try
         {
             if (_ownsInstanceMutex) _instanceMutex?.ReleaseMutex();

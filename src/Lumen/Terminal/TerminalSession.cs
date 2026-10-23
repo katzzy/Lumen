@@ -440,7 +440,7 @@ public sealed class TerminalSession : IDisposable
         CancelPaste();
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
-        _log.Stop();
+        _ = _log.StopAsync();
         try
         {
             _transport.Dispose();

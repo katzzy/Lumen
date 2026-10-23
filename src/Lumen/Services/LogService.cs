@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Threading.Channels;
@@ -6,6 +7,8 @@ namespace Lumen.Services;
 
 public sealed class LogService : IDisposable
 {
+    private static readonly ConcurrentDictionary<int, Task> Pending = new();
+    private static int _pendingId;
     private readonly object _gate = new();
     private Channel<LogEntry>? _queue;
     private Task? _worker;
@@ -137,6 +140,18 @@ public sealed class LogService : IDisposable
 
     public void Stop()
     {
+        try
+        {
+            StopAsync().Wait(1500);
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
+    public Task StopAsync()
+    {
         Channel<LogEntry>? queue;
         Task? worker;
         lock (_gate)
@@ -148,21 +163,28 @@ public sealed class LogService : IDisposable
             _active = false;
         }
 
-        if (queue is null) return;
+        if (queue is null || worker is null) return Task.CompletedTask;
+
         queue.Writer.TryWrite(new LogEntry(EntryKind.Stop));
         queue.Writer.TryComplete();
+        int id = Interlocked.Increment(ref _pendingId);
+        Pending[id] = worker;
+        return worker.ContinueWith(_ =>
+        {
+            if (Pending.TryRemove(id, out var removedTask)) GC.KeepAlive(removedTask);
+            lock (_gate) _filePath = null;
+        }, TaskScheduler.Default);
+    }
+
+    public static void WaitForPending(int milliseconds)
+    {
         try
         {
-            worker?.Wait(1500);
+            Task.WaitAll(Pending.Values.ToArray(), milliseconds);
         }
         catch
         {
             // best effort
-        }
-
-        lock (_gate)
-        {
-            _filePath = null;
         }
     }
 
