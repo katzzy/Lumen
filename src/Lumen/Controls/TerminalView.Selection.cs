@@ -190,25 +190,28 @@ public sealed partial class TerminalView
         var buffer = _session.Buffer;
         SelectionRange(out int startLine, out int startCol, out int endLine, out int endCol);
         var sb = new StringBuilder();
-        for (int lineIndex = startLine; lineIndex <= endLine; lineIndex++)
+        lock (buffer.SyncRoot)
         {
-            var line = buffer.GetDisplayLine(lineIndex);
-            if (line is null) continue;
-            int from = lineIndex == startLine ? startCol : 0;
-            int to = lineIndex == endLine ? endCol : line.Cells.Length;
-            from = Math.Clamp(from, 0, line.Cells.Length);
-            to = Math.Clamp(to, 0, line.Cells.Length);
-            var lineText = new StringBuilder();
-            for (int c = from; c < to; c++)
+            for (int lineIndex = startLine; lineIndex <= endLine; lineIndex++)
             {
-                var cell = line.Cells[c];
-                if ((cell.Flags & CellFlags.WideTail) != 0) continue;
-                if (cell.Rune == 0) continue;
-                lineText.Append(cell.Rune <= 0xFFFF ? (char)cell.Rune : char.ConvertFromUtf32(cell.Rune));
-                if (cell.Combining is not null) lineText.Append(cell.Combining);
+                var line = buffer.GetDisplayLine(lineIndex);
+                if (line is null) continue;
+                int from = lineIndex == startLine ? startCol : 0;
+                int to = lineIndex == endLine ? endCol : line.Cells.Length;
+                from = Math.Clamp(from, 0, line.Cells.Length);
+                to = Math.Clamp(to, 0, line.Cells.Length);
+                var lineText = new StringBuilder();
+                for (int c = from; c < to; c++)
+                {
+                    var cell = line.Cells[c];
+                    if ((cell.Flags & CellFlags.WideTail) != 0) continue;
+                    if (cell.Rune == 0) continue;
+                    lineText.Append(cell.Rune <= 0xFFFF ? (char)cell.Rune : char.ConvertFromUtf32(cell.Rune));
+                    if (cell.Combining is not null) lineText.Append(cell.Combining);
+                }
+                sb.Append(lineText.ToString().TrimEnd());
+                if (lineIndex < endLine && !line.Wrapped) sb.Append("\r\n");
             }
-            sb.Append(lineText.ToString().TrimEnd());
-            if (lineIndex < endLine && !line.Wrapped) sb.Append("\r\n");
         }
         return sb.ToString();
     }
@@ -284,27 +287,30 @@ public sealed partial class TerminalView
 
     private void AddMatchesForLine(ScreenBuffer buffer, int lineIndex)
     {
-        var line = buffer.GetDisplayLine(lineIndex);
-        if (line is null) return;
-
-        var (text, cellAtChar) = line.GetTextWithCells();
-        if (text.Length == 0) return;
-
-        int index = 0;
-        while (index < text.Length)
+        lock (buffer.SyncRoot)
         {
-            int found = text.IndexOf(_searchText, index, StringComparison.OrdinalIgnoreCase);
-            if (found < 0) break;
-            int endChar = found + _searchText.Length - 1;
-            if (endChar < cellAtChar.Length)
+            var line = buffer.GetDisplayLine(lineIndex);
+            if (line is null) return;
+
+            var (text, cellAtChar) = line.GetTextWithCells();
+            if (text.Length == 0) return;
+
+            int index = 0;
+            while (index < text.Length)
             {
-                int startCell = cellAtChar[found];
-                int endCell = cellAtChar[endChar];
-                int width = CellWidth(line, endCell);
-                int length = Math.Max(1, endCell - startCell + width);
-                _matches.Add((lineIndex, startCell, length));
+                int found = text.IndexOf(_searchText, index, StringComparison.OrdinalIgnoreCase);
+                if (found < 0) break;
+                int endChar = found + _searchText.Length - 1;
+                if (endChar < cellAtChar.Length)
+                {
+                    int startCell = cellAtChar[found];
+                    int endCell = cellAtChar[endChar];
+                    int width = CellWidth(line, endCell);
+                    int length = Math.Max(1, endCell - startCell + width);
+                    _matches.Add((lineIndex, startCell, length));
+                }
+                index = found + Math.Max(1, _searchText.Length);
             }
-            index = found + Math.Max(1, _searchText.Length);
         }
     }
 

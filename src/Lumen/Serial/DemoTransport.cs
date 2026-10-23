@@ -16,7 +16,7 @@ public sealed class DemoTransport : ITerminalTransport
     public long BytesReceived { get; private set; }
     public long BytesSent => _bytesSent;
 
-    public event Action<byte[]>? DataReceived;
+    public event Action<ReadOnlyMemory<byte>>? DataReceived;
     public event Action<string>? Disconnected;
 
     public async Task OpenAsync()

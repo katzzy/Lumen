@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
@@ -17,8 +16,7 @@ public sealed class TerminalSession : IDisposable
     private Decoder _decoder;
     private Encoding _encoding;
     private readonly SynchronizationContext _ui;
-    private readonly ConcurrentQueue<byte[]> _receiveQueue = new();
-    private int _receiveScheduled;
+    private int _updateScheduled;
     private readonly LogService _log = new();
     private readonly StringBuilder _detectBuffer = new();
     private VendorProfile? _vendor;
@@ -45,7 +43,10 @@ public sealed class TerminalSession : IDisposable
         _parser.TitleChanged = title =>
         {
             Title = title;
-            TitleChanged?.Invoke();
+            _ui.Post(_ =>
+            {
+                if (!_disposed) TitleChanged?.Invoke();
+            }, null);
         };
         _parser.Response = text => SendText(text);
 
@@ -119,49 +120,56 @@ public sealed class TerminalSession : IDisposable
         }
     }
 
-    private void OnDataReceived(byte[] data)
+    private void OnDataReceived(ReadOnlyMemory<byte> data)
     {
         if (_disposed) return;
-        _receiveQueue.Enqueue(data);
-        if (Interlocked.Exchange(ref _receiveScheduled, 1) == 0)
-        {
-            _ui.Post(_ => DrainReceiveQueue(), null);
-        }
+        Feed(data);
     }
 
-    private void DrainReceiveQueue()
-    {
-        _receiveScheduled = 0;
-        while (_receiveQueue.TryDequeue(out var data))
-        {
-            if (_disposed) return;
-            Feed(data);
-        }
-    }
-
-    private void Feed(byte[] data)
+    private void Feed(ReadOnlyMemory<byte> data)
     {
         if (_disposed) return;
         try
         {
             int max = _encoding.GetMaxCharCount(data.Length);
             var chars = new char[Math.Max(1, max)];
-            int count = _decoder.GetChars(data, 0, data.Length, chars, 0);
+            int count = _decoder.GetChars(data.Span, chars, flush: false);
             if (count <= 0) return;
             var text = new string(chars, 0, count);
             if (text.Any(c => c > 127)) _sawNonAscii = true;
             var detected = TryDetectVendor(text);
             _log.Write(text);
-            _parser.Parse(text);
-            LastActivity = DateTime.Now;
-            if (detected is not null) VendorDetected?.Invoke(detected);
-            MaybeAutoPage();
-            Updated?.Invoke();
+
+            lock (_buffer.SyncRoot)
+            {
+                _parser.Parse(text);
+                LastActivity = DateTime.Now;
+                MaybeAutoPage();
+            }
+
+            if (detected is not null)
+            {
+                _ui.Post(_ =>
+                {
+                    if (!_disposed) VendorDetected?.Invoke(detected);
+                }, null);
+            }
+            PostUpdated();
         }
         catch (Exception ex)
         {
             App.LogError("terminal feed", ex);
         }
+    }
+
+    private void PostUpdated()
+    {
+        if (Interlocked.Exchange(ref _updateScheduled, 1) != 0) return;
+        _ui.Post(_ =>
+        {
+            _updateScheduled = 0;
+            if (!_disposed) Updated?.Invoke();
+        }, null);
     }
 
     private VendorProfile? TryDetectVendor(string text)
@@ -390,14 +398,21 @@ public sealed class TerminalSession : IDisposable
     {
         if (_disposed) return;
         string color = error ? "248;81;73" : "139;147;167";
-        _parser.Parse($"\r\n\x1b[38;2;{color}m[Lumen] {message}\x1b[0m\r\n");
-        Updated?.Invoke();
+        lock (_buffer.SyncRoot)
+        {
+            _parser.Parse($"\r\n\x1b[38;2;{color}m[Lumen] {message}\x1b[0m\r\n");
+        }
+        PostUpdated();
     }
 
     public void ParseLocal(string escapeSequence)
     {
-        _parser.Parse(escapeSequence);
-        Updated?.Invoke();
+        if (_disposed) return;
+        lock (_buffer.SyncRoot)
+        {
+            _parser.Parse(escapeSequence);
+        }
+        PostUpdated();
     }
 
     public void Disconnect()

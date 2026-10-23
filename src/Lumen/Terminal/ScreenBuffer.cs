@@ -15,6 +15,7 @@ public sealed class ScreenBuffer
     private TerminalLine[] _alt = Array.Empty<TerminalLine>();
     private bool _altActive;
     private readonly ScrollbackBuffer _scrollback = new(10000);
+    public object SyncRoot { get; } = new();
     private Cell _pen = Cell.Empty;
     private bool[] _tabStops = Array.Empty<bool>();
     private int _scrollTop;
@@ -51,10 +52,21 @@ public sealed class ScreenBuffer
         set => _scrollback.TrimTo(Math.Max(0, value));
     }
     public IReadOnlyList<TerminalLine> Scrollback => _scrollback;
-    public int ScrollbackCount => _scrollback.Count;
+    public int ScrollbackCount
+    {
+        get { lock (SyncRoot) return _scrollback.Count; }
+    }
+
     public long TotalPrinted { get; internal set; }
-    public int TotalDisplayLines => _altActive ? Rows : _scrollback.Count + Rows;
-    public int CursorAbsoluteLine => _altActive ? CursorRow : _scrollback.Count + CursorRow;
+    public int TotalDisplayLines
+    {
+        get { lock (SyncRoot) return _altActive ? Rows : _scrollback.Count + Rows; }
+    }
+
+    public int CursorAbsoluteLine
+    {
+        get { lock (SyncRoot) return _altActive ? CursorRow : _scrollback.Count + CursorRow; }
+    }
 
     public Cell Pen => _pen;
     public uint PenFg
@@ -117,14 +129,17 @@ public sealed class ScreenBuffer
 
     public TerminalLine? GetDisplayLine(int index)
     {
-        if (_altActive)
+        lock (SyncRoot)
         {
-            return index >= 0 && index < Rows ? _alt[index] : null;
+            if (_altActive)
+            {
+                return index >= 0 && index < Rows ? _alt[index] : null;
+            }
+            if (index < 0) return null;
+            if (index < _scrollback.Count) return _scrollback[index];
+            int screenRow = index - _scrollback.Count;
+            return screenRow >= 0 && screenRow < Rows ? _main[screenRow] : null;
         }
-        if (index < 0) return null;
-        if (index < _scrollback.Count) return _scrollback[index];
-        int screenRow = index - _scrollback.Count;
-        return screenRow >= 0 && screenRow < Rows ? _main[screenRow] : null;
     }
 
     public void Resize(int columns, int rows)

@@ -7,7 +7,7 @@ public interface ITerminalTransport : IDisposable
     long BytesReceived { get; }
     long BytesSent { get; }
 
-    event Action<byte[]>? DataReceived;
+    event Action<ReadOnlyMemory<byte>>? DataReceived;
     event Action<string>? Disconnected;
 
     Task OpenAsync();

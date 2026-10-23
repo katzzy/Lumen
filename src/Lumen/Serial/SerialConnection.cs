@@ -28,7 +28,7 @@ public sealed class SerialConnection : ITerminalTransport
     public bool Dtr => _port.Dtr;
     public bool Rts => _port.Rts;
 
-    public event Action<byte[]>? DataReceived;
+    public event Action<ReadOnlyMemory<byte>>? DataReceived;
     public event Action<string>? Disconnected;
 
     public async Task OpenAsync()

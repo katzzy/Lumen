@@ -149,16 +149,19 @@ public sealed partial class TerminalView : FrameworkElement
     {
         if (_session is null) return "";
         var buffer = _session.Buffer;
-        int total = buffer.TotalDisplayLines;
-        int start = Math.Max(0, total - 2000);
-        var sb = new StringBuilder();
-        for (int i = start; i < total; i++)
+        lock (buffer.SyncRoot)
         {
-            var line = buffer.GetDisplayLine(i);
-            if (line is null) continue;
-            sb.AppendLine(line.GetText());
+            int total = buffer.TotalDisplayLines;
+            int start = Math.Max(0, total - 2000);
+            var sb = new StringBuilder();
+            for (int i = start; i < total; i++)
+            {
+                var line = buffer.GetDisplayLine(i);
+                if (line is null) continue;
+                sb.AppendLine(line.GetText());
+            }
+            return sb.ToString();
         }
-        return sb.ToString();
     }
 
     public double TerminalFontSize

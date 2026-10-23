@@ -29,7 +29,7 @@ internal sealed class Win32SerialPort : IDisposable
     private bool _dtr = true;
     private bool _rts = true;
 
-    public event Action<byte[]>? DataReceived;
+    public event Action<ReadOnlyMemory<byte>>? DataReceived;
     public event Action<string>? Faulted;
 
     public bool IsOpen
@@ -188,12 +188,10 @@ internal sealed class Win32SerialPort : IDisposable
                 continue;
             }
 
-            var data = new byte[read];
-            Buffer.BlockCopy(buffer, 0, data, 0, (int)read);
             BytesReceived += read;
             try
             {
-                DataReceived?.Invoke(data);
+                DataReceived?.Invoke(new ReadOnlyMemory<byte>(buffer, 0, (int)read));
             }
             catch
             {

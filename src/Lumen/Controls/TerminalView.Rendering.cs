@@ -8,6 +8,10 @@ namespace Lumen.Controls;
 
 public sealed partial class TerminalView
 {
+    private readonly Dictionary<int, (long Hash, DrawingGroup Group)> _rowCache = new();
+    private int _rowCacheRows = -1;
+    private int _rowCacheCols = -1;
+
     private FormattedText GetFormattedText(string text, CellFlags flags, uint color)
     {
         var key = (text, color, flags & (CellFlags.Bold | CellFlags.Italic));
@@ -68,43 +72,63 @@ public sealed partial class TerminalView
 
         int cols = Math.Max(20, (int)((ActualWidth - PadX * 2) / _cellW));
         int rows = Math.Max(3, (int)((ActualHeight - PadY * 2) / _cellH));
-        if (buffer.Columns != cols || buffer.Rows != rows)
+        lock (buffer.SyncRoot)
         {
-            buffer.Resize(cols, rows);
-            _scrollOffset = Math.Clamp(_scrollOffset, 0, MaxScrollOffset());
-            _lastScrollbackCount = buffer.ScrollbackCount;
-            if (buffer.NeedsFullReflow)
+            if (buffer.Columns != cols || buffer.Rows != rows)
             {
-                _fullReflowTimer.Stop();
-                _fullReflowTimer.Start();
+                buffer.Resize(cols, rows);
+                _scrollOffset = Math.Clamp(_scrollOffset, 0, MaxScrollOffset());
+                _lastScrollbackCount = buffer.ScrollbackCount;
+                if (buffer.NeedsFullReflow)
+                {
+                    _fullReflowTimer.Stop();
+                    _fullReflowTimer.Start();
+                }
             }
-        }
 
-        int total = buffer.TotalDisplayLines;
-        int maxOffset = Math.Max(0, total - rows);
-        _scrollOffset = Math.Clamp(_scrollOffset, 0, maxOffset);
-        int startLine = total - rows - _scrollOffset;
+            int total = buffer.TotalDisplayLines;
+            int maxOffset = Math.Max(0, total - rows);
+            _scrollOffset = Math.Clamp(_scrollOffset, 0, maxOffset);
+            int startLine = total - rows - _scrollOffset;
 
-        dc.PushClip(new RectangleGeometry(new Rect(RenderSize)));
-        if (buffer.TotalPrinted == 0 && _session.IsConnected)
-        {
-            DrawWaitingHint(dc);
-        }
-        for (int r = 0; r < rows; r++)
-        {
-            int lineIndex = startLine + r;
-            if (lineIndex < 0) continue;
-            var line = buffer.GetDisplayLine(lineIndex);
-            if (line is null) continue;
-            double y = PadY + r * _cellH;
-            DrawLine(dc, line, lineIndex, y, cols, buffer);
-        }
+            dc.PushClip(new RectangleGeometry(new Rect(RenderSize)));
+            if (_rowCacheRows != rows || _rowCacheCols != cols)
+            {
+                _rowCache.Clear();
+                _rowCacheRows = rows;
+                _rowCacheCols = cols;
+            }
+            if (buffer.TotalPrinted == 0 && _session.IsConnected)
+            {
+                DrawWaitingHint(dc);
+            }
+            for (int r = 0; r < rows; r++)
+            {
+                int lineIndex = startLine + r;
+                if (lineIndex < 0) continue;
+                var line = buffer.GetDisplayLine(lineIndex);
+                if (line is null) continue;
+                double y = PadY + r * _cellH;
+                long hash = ComputeRowHash(line, lineIndex, r, rows, cols, buffer);
+                if (!_rowCache.TryGetValue(r, out var entry) || entry.Hash != hash)
+                {
+                    var group = new DrawingGroup();
+                    using (var rowContext = group.Open())
+                    {
+                        DrawLine(rowContext, line, lineIndex, y, cols, buffer);
+                    }
+                    entry = (hash, group);
+                    _rowCache[r] = entry;
+                }
+                dc.DrawDrawing(entry.Group);
+            }
 
-        if (maxOffset > 0)
-        {
-            DrawScrollBar(dc, rows, total, maxOffset);
+            if (maxOffset > 0)
+            {
+                DrawScrollBar(dc, rows, total, maxOffset);
+            }
+            dc.Pop();
         }
-        dc.Pop();
     }
 
     private void DrawWaitingHint(DrawingContext dc)
@@ -123,6 +147,48 @@ public sealed partial class TerminalView
         dc.DrawText(ft, new Point(
             SnapX(Math.Max(PadX, (ActualWidth - ft.Width) / 2)),
             SnapY(Math.Max(PadY, (ActualHeight - ft.Height) / 2))));
+    }
+
+    private long ComputeRowHash(TerminalLine line, int lineIndex, int row, int rows, int cols, ScreenBuffer buffer)
+    {
+        var hash = new HashCode();
+        hash.Add(lineIndex);
+        hash.Add(row);
+        hash.Add(rows);
+        hash.Add(cols);
+        hash.Add(_cellW);
+        hash.Add(_cellH);
+        hash.Add(_fontSize);
+        hash.Add(_searchVersion);
+        hash.Add(_matchIndex);
+        hash.Add(_hasSelection);
+        if (_hasSelection)
+        {
+            hash.Add(_selAnchor.Line);
+            hash.Add(_selAnchor.Col);
+            hash.Add(_selEnd.Line);
+            hash.Add(_selEnd.Col);
+        }
+        hash.Add(IsFocused);
+        hash.Add(line.Wrapped);
+
+        bool cursorLine = IsFocused && buffer.CursorVisible && _scrollOffset == 0 && lineIndex == buffer.CursorAbsoluteLine;
+        if (cursorLine)
+        {
+            hash.Add(_cursorOn);
+            hash.Add(buffer.CursorCol);
+            hash.Add(buffer.CursorStyle);
+        }
+
+        foreach (var cell in line.Cells)
+        {
+            hash.Add(cell.Rune);
+            hash.Add(cell.Fg);
+            hash.Add(cell.Bg);
+            hash.Add((ushort)cell.Flags);
+            if (cell.Combining is not null) hash.Add(cell.Combining);
+        }
+        return hash.ToHashCode();
     }
 
     private double VisibleRows => Math.Max(1, (int)((ActualHeight - PadY * 2) / _cellH));
