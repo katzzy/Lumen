@@ -1,0 +1,158 @@
+<UserControl x:Class="Lumen.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="540"
+             MaxHeight="720"
+             Focusable="True"
+             KeyDown="Root_KeyDown">
+    <Border Background="{StaticResource Brush.Surface}"
+            BorderBrush="{StaticResource Brush.Border}"
+            BorderThickness="1"
+            CornerRadius="14">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="40" ShadowDepth="14" Opacity="0.45" Color="Black" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="64" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="22,0,12,0">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="设置"
+                               FontFamily="{StaticResource Font.Display}"
+                               FontSize="17"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="显示、记录与粘贴行为"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Button HorizontalAlignment="Right"
+                        Style="{StaticResource BtnIcon}"
+                        Content="&#xE711;"
+                        Width="30"
+                        Height="30"
+                        FontSize="10"
+                        Click="Cancel_Click" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,0,22,0">
+                <StackPanel Margin="0,0,0,18">
+                    <TextBlock Text="终端显示" Style="{StaticResource Text.Section}" Margin="0,4,0,10" />
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="110" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="字体" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <ComboBox x:Name="FontFamilyBox" Height="34" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="字号" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="FontSizeBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="140" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="回滚缓冲区（行）" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="ScrollbackBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="默认粘贴延迟 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="PasteDelayBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="日志" Style="{StaticResource Text.Section}" Margin="0,10,0,10" />
+                    <TextBlock Text="日志根目录" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="6" />
+                            <ColumnDefinition Width="34" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="LogRootBox" Height="34" VerticalContentAlignment="Top" />
+                        <Button Grid.Column="2"
+                                Style="{StaticResource BtnSecondary}"
+                                Padding="0"
+                                ToolTip="选择目录" AutomationProperties.Name="选择目录"
+                                Click="BrowseLogRoot_Click">
+                            <TextBlock Text="&#xE8B7;"
+                                       FontFamily="{StaticResource Font.Icons}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Brush.TextSecondary}" />
+                        </Button>
+                    </Grid>
+                    <TextBlock Text="留空则使用默认目录（便携版位于程序目录）"
+                               FontSize="10.5"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               Margin="2,0,0,12" />
+
+                    <CheckBox x:Name="AutoLogCheck" Content="连接会话后自动开始记录日志" Margin="2,0,0,10" />
+                    <CheckBox x:Name="TimestampCheck" Content="日志每行添加时间戳" Margin="2,0,0,10" />
+                    <CheckBox x:Name="ConfirmPasteCheck" Content="粘贴危险命令前二次确认" Margin="2,0,0,10" />
+
+                    <Border Background="{StaticResource Brush.BgDeep}"
+                            BorderBrush="{StaticResource Brush.Border}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12"
+                            Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="数据位置" Style="{StaticResource Text.Section}" />
+                            <TextBlock x:Name="DataPathText"
+                                       FontFamily="{StaticResource Font.Mono}"
+                                       FontSize="10.5"
+                                       Foreground="{StaticResource Brush.TextMuted}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,0" />
+                            <TextBlock Text="Lumen 1.0 · 为网络运维打造的串口控制台"
+                                       FontSize="10.5"
+                                       Foreground="{StaticResource Brush.TextMuted}"
+                                       Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2"
+                    BorderBrush="{StaticResource Brush.BorderSoft}"
+                    BorderThickness="0,1,0,0"
+                    Padding="22,12">
+                <Grid>
+                    <TextBlock x:Name="ErrorText"
+                               VerticalAlignment="Center"
+                               FontSize="11.5"
+                               Foreground="{StaticResource Brush.Red}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="恢复默认"
+                                Style="{StaticResource BtnGhost}"
+                                Padding="10,7"
+                                Margin="0,0,8,0"
+                                Click="Defaults_Click" />
+                        <Button Content="取消"
+                                Style="{StaticResource BtnSecondary}"
+                                Padding="18,7"
+                                Click="Cancel_Click" />
+                        <Button Content="保存"
+                                Style="{StaticResource BtnPrimary}"
+                                Padding="22,7"
+                                Margin="8,0,0,0"
+                                Click="Save_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

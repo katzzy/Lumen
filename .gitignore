@@ -1,0 +1,15 @@
+# Build output
+src/**/bin/
+src/**/obj/
+dist/
+.vs/
+*.user
+*.suo
+
+# Local runtime data
+data/
+logs/
+*.log
+
+# Archives
+*.zip

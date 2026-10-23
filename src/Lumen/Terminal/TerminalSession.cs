@@ -1,0 +1,312 @@
+using System.Text;
+using System.Windows.Input;
+using Lumen.Models;
+using Lumen.Services;
+
+namespace Lumen.Terminal;
+
+public sealed class TerminalSession : IDisposable
+{
+    private readonly SessionProfile _profile;
+    private readonly AppSettings _settings;
+    private readonly ITerminalTransport _transport;
+    private readonly ScreenBuffer _buffer;
+    private readonly VtParser _parser;
+    private readonly Decoder _decoder;
+    private readonly Encoding _encoding;
+    private readonly SynchronizationContext _ui;
+    private readonly LogService _log = new();
+    private bool _disposed;
+    private CancellationTokenSource? _pasteCts;
+
+    public TerminalSession(SessionProfile profile, ITerminalTransport transport, AppSettings settings)
+    {
+        _profile = profile.Clone();
+        _settings = settings;
+        _transport = transport;
+        _encoding = EncodingUtil.Resolve(profile.Encoding);
+        _decoder = _encoding.GetDecoder();
+        _buffer = new ScreenBuffer(100, 30) { ScrollbackLimit = Math.Max(1000, settings.ScrollbackLines) };
+        _parser = new VtParser(_buffer);
+        _ui = SynchronizationContext.Current ?? new SynchronizationContext();
+
+        _parser.TitleChanged = title =>
+        {
+            Title = title;
+            TitleChanged?.Invoke();
+        };
+        _parser.Response = text => SendText(text);
+        _parser.Bell = () => Bell?.Invoke();
+
+        _transport.DataReceived += OnDataReceived;
+        _transport.Disconnected += OnDisconnected;
+    }
+
+    public SessionProfile Profile => _profile;
+    public ITerminalTransport Transport => _transport;
+    public ScreenBuffer Buffer => _buffer;
+    public bool IsConnected { get; private set; }
+    public bool IsPasting { get; private set; }
+    public string Title { get; private set; } = "";
+    public string? LogPath => _log.FilePath;
+    public bool IsLogging => _log.IsActive;
+    public DateTime LastActivity { get; private set; } = DateTime.Now;
+    public long BytesReceived => _transport.BytesReceived;
+    public long BytesSent => _transport.BytesSent;
+
+    public event Action? Updated;
+    public event Action? StateChanged;
+    public event Action? TitleChanged;
+    public event Action? Bell;
+    public event Action<int, int>? PasteProgress;
+
+    public async Task<bool> ConnectAsync()
+    {
+        try
+        {
+            await _transport.OpenAsync().ConfigureAwait(true);
+            IsConnected = true;
+            StateChanged?.Invoke();
+
+            if (_profile.AutoLog && _settings.AutoLog) StartLog();
+
+            var commands = _profile.InitCommands
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0)
+                .ToList();
+
+            if (commands.Count > 0)
+            {
+                await Task.Delay(650);
+                foreach (var command in commands)
+                {
+                    if (!IsConnected) break;
+                    SendText(command + "\r");
+                    await Task.Delay(160);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            IsConnected = false;
+            InjectSystem($"无法打开 {_profile.Serial.PortName}：{ex.Message}", true);
+            StateChanged?.Invoke();
+            return false;
+        }
+    }
+
+    private void OnDataReceived(byte[] data)
+    {
+        if (_disposed) return;
+        _ui.Post(_ => Feed(data), null);
+    }
+
+    private void Feed(byte[] data)
+    {
+        if (_disposed) return;
+        try
+        {
+            int max = _encoding.GetMaxCharCount(data.Length);
+            var chars = new char[Math.Max(1, max)];
+            int count = _decoder.GetChars(data, 0, data.Length, chars, 0);
+            if (count <= 0) return;
+            var text = new string(chars, 0, count);
+            _log.Write(text);
+            _parser.Parse(text);
+            LastActivity = DateTime.Now;
+            Updated?.Invoke();
+        }
+        catch
+        {
+            // Decoding must never take the session down.
+        }
+    }
+
+    private void OnDisconnected(string reason)
+    {
+        if (_disposed) return;
+        _ui.Post(_ => HandleDisconnected(reason), null);
+    }
+
+    private void HandleDisconnected(string reason)
+    {
+        if (!IsConnected && !_transport.IsOpen) return;
+        IsConnected = false;
+        _log.Stop();
+        InjectSystem($"连接已断开：{reason}", true);
+        StateChanged?.Invoke();
+    }
+
+    public void SendText(string text)
+    {
+        if (!IsConnected || text.Length == 0) return;
+        try
+        {
+            var bytes = _encoding.GetBytes(text);
+            _transport.Write(bytes);
+        }
+        catch (Exception ex)
+        {
+            HandleDisconnected(ex.Message);
+        }
+    }    public void SendBytes(byte[] bytes)
+    {
+        if (!IsConnected || bytes.Length == 0) return;
+        try
+        {
+            _transport.Write(bytes);
+        }
+        catch (Exception ex)
+        {
+            HandleDisconnected(ex.Message);
+        }
+    }
+
+    public void SendKey(Key key, ModifierKeys modifiers)
+    {
+        var bytes = TerminalKeyEncoder.Encode(key, modifiers, _buffer);
+        if (bytes is not null) SendBytes(bytes);
+    }
+
+    public async Task SendBreakAsync()
+    {
+        try
+        {
+            await _transport.SendBreakAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            HandleDisconnected(ex.Message);
+        }
+    }
+
+    public void SetDtr(bool enabled) => _transport.SetDtr(enabled);
+    public void SetRts(bool enabled) => _transport.SetRts(enabled);
+
+    public async Task PasteAsync(string text, int lineDelayMs)
+    {
+        CancelPaste();
+        var cts = new CancellationTokenSource();
+        _pasteCts = cts;
+        var token = cts.Token;
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n').ToList();
+        while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+        if (lines.Count == 0) return;
+
+        IsPasting = true;
+        try
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (token.IsCancellationRequested || !IsConnected) break;
+                SendText(lines[i]);
+                SendBytes(new byte[] { 0x0D });
+                PasteProgress?.Invoke(i + 1, lines.Count);
+                if (i < lines.Count - 1 && lineDelayMs > 0)
+                {
+                    await Task.Delay(lineDelayMs, token).ConfigureAwait(true);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // cancelled by user
+        }
+        finally
+        {
+            IsPasting = false;
+            if (ReferenceEquals(_pasteCts, cts)) _pasteCts = null;
+            cts.Dispose();
+        }
+    }
+
+    public void CancelPaste()
+    {
+        try
+        {
+            _pasteCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    public void StartLog(string? directory = null, bool? timestamps = null)
+    {
+        if (_log.IsActive) return;
+        try
+        {
+            var root = directory ?? _profile.LogDirectory;
+            if (string.IsNullOrWhiteSpace(root)) root = _settings.EffectiveLogRoot;
+            var path = LogService.BuildFilePath(root, _profile.Name);
+            _log.Start(path, timestamps ?? _settings.LogTimestamps, new UTF8Encoding(false));
+        }
+        catch
+        {
+            // logging is best-effort
+        }
+    }
+
+    public void StopLog() => _log.Stop();
+
+    public bool ToggleLog()
+    {
+        if (_log.IsActive) StopLog();
+        else StartLog();
+        return _log.IsActive;
+    }
+
+    public void InjectSystem(string message, bool error = false)
+    {
+        string color = error ? "248;81;73" : "139;147;167";
+        _parser.Parse($"\r\n\x1b[38;2;{color}m[Lumen] {message}\x1b[0m\r\n");
+        Updated?.Invoke();
+    }
+
+    public void ParseLocal(string escapeSequence)
+    {
+        _parser.Parse(escapeSequence);
+        Updated?.Invoke();
+    }
+
+    public void Disconnect()
+    {
+        if (!IsConnected) return;
+        IsConnected = false;
+        _log.Stop();
+        try
+        {
+            _transport.Dispose();
+        }
+        catch
+        {
+            // ignore
+        }
+        InjectSystem("已断开连接", false);
+        StateChanged?.Invoke();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        CancelPaste();
+        _transport.DataReceived -= OnDataReceived;
+        _transport.Disconnected -= OnDisconnected;
+        _log.Stop();
+        try
+        {
+            _transport.Dispose();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+}
