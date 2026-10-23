@@ -133,7 +133,10 @@ public static class TerminalReflow
         if (cursorInGroup)
         {
             int offset = Math.Clamp(cursorOffset, 0, endCell);
-            if (offset == endCell && offset > 0) offset = endCell - 1;
+            // When the prompt ends exactly on a cell boundary, keep the cursor
+            // on the last cell (pending-wrap semantics) instead of pushing it
+            // onto an imaginary next line.
+            if (offset == endCell && endCell > 0 && endCell % columns == 0) offset = endCell - 1;
             result.CursorLine = groupStart + offset / columns;
             result.CursorColumn = offset % columns;
         }
