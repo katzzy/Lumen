@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Automation.Peers;
 using System.Windows.Threading;
 using Lumen.Terminal;
 
@@ -111,6 +112,28 @@ public sealed class TerminalView : FrameworkElement
     }
 
     public TerminalPalette Palette { get; set; } = TerminalPalette.Dark;
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new TerminalAutomationPeer(this);
+
+    /// <summary>
+    /// Text exposed to UI Automation / screen readers. Limited to the most recent
+    /// 2000 display lines to avoid walking an unbounded scrollback on every query.
+    /// </summary>
+    public string GetAutomationText()
+    {
+        if (_session is null) return "";
+        var buffer = _session.Buffer;
+        int total = buffer.TotalDisplayLines;
+        int start = Math.Max(0, total - 2000);
+        var sb = new StringBuilder();
+        for (int i = start; i < total; i++)
+        {
+            var line = buffer.GetDisplayLine(i);
+            if (line is null) continue;
+            sb.AppendLine(line.GetText());
+        }
+        return sb.ToString();
+    }
 
     public double TerminalFontSize
     {

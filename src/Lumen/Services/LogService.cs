@@ -154,6 +154,28 @@ public sealed class LogService : IDisposable
         _writer.Write(ch);
     }
 
+    public void WriteTx(string command)
+    {
+        if (_writer is null) return;
+        command = command.TrimEnd('\r', '\n');
+        if (command.Length == 0) return;
+
+        if (!_atLineStart)
+        {
+            _writer.Write(Environment.NewLine);
+            _atLineStart = true;
+            _skipLineFeed = false;
+        }
+        if (TimestampEnabled) _writer.Write($"[{DateTime.Now:HH:mm:ss}] ");
+        _writer.Write("[TX] ");
+        _writer.Write(command);
+        _writer.Write(Environment.NewLine);
+        _atLineStart = true;
+
+        _pendingChars += command.Length + 8;
+        if (_pendingChars >= 8192) Flush();
+    }
+
     public void Flush()
     {
         try

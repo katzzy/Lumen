@@ -244,12 +244,15 @@ public sealed class TerminalSession : IDisposable
         {
             var bytes = _encoding.GetBytes(text);
             _transport.Write(bytes);
+            if (text.EndsWith('\r') || text.EndsWith('\n')) _log.WriteTx(text);
         }
         catch (Exception ex)
         {
             HandleDisconnected(ex.Message);
         }
-    }    public void SendBytes(byte[] bytes)
+    }
+
+    public void SendBytes(byte[] bytes)
     {
         if (_disposed || !IsConnected || bytes.Length == 0) return;
         try
@@ -307,8 +310,7 @@ public sealed class TerminalSession : IDisposable
                     break;
                 }
 
-                SendText(lines[i]);
-                SendBytes(new byte[] { 0x0D });
+                SendText(lines[i] + "\r");
                 PasteProgress?.Invoke(i + 1, lines.Count);
                 if (i < lines.Count - 1 && lineDelayMs > 0)
                 {
