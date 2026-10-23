@@ -1,31 +1,21 @@
 # Lumen Terminal 1.1.13
 
-面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
+Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙等网络设备的串口调试。界面基于 WPF，终端使用自绘控件，串口直接调用 Win32 API；不使用 WebView、Electron 或 Tauri。
 
 ![Lumen Terminal](screenshot.png)
 
-## 本次更新亮点
+## 功能
 
-- **高波特率更流畅**：VT 解析移出 UI 线程，串口读取零拷贝复用缓冲区，逐行缓存终端渲染；光标闪烁不再整屏重绘。
-- **搜索更快**：输入防抖 + 分块搜索，10k 行回滚搜索不再卡住界面；CJK/emoji 高亮按单元格准确映射。
-- **缩放不丢内容**：窗口缩窄或变高时重排可见终端和最近回滚；完整回滚在后台重排，不阻塞界面。
-- **关闭日志不卡顿**：日志后台写盘，关闭标签时异步落盘，退出时统一收尾。
-- **更稳的串口会话**：修复关闭标签时的连接竞态，单实例保护，串口写入 0 字节会明确报错。
-- **读屏与输入**：UIA TextPattern 支持选区与 GetEnclosingElement；IME 候选框定位到终端光标下方。
-- **日志更干净**：ANSI 剥离改为批量处理，后台写盘不阻塞界面。
+- 串口：COM 口枚举、波特率/数据位/校验/停止位/流控、DTR/RTS、Send Break。
+- 终端：VT100/ANSI、10,000 行回滚、搜索、选区复制、GBK/UTF-8。
+- 会话：会话分组、快速连接、手动重连、单实例。
+- 运维：粘贴节流、危险命令确认、登录后自动分页、快捷命令。
+- 日志：自动记录、可选时间戳、按会话命名、打开日志目录。
+- 界面：深色主题、标签页、可调字号，支持 UI Automation 读取和选择终端文本。
 
-## 为什么是 Lumen
+## 厂商模板
 
-- **串口优先**：COM 口枚举（含 USB 描述）、波特率/数据位/校验/停止位/流控、DTR/RTS、**Send Break**（交换机进 ROMMON / 密码恢复）。
-- **粘贴不丢字符**：每行可配置延迟（默认 100ms），9600 波特率下粘贴整段配置也不会丢；危险命令（`erase` / `reload` / `write erase` 等）二次确认。
-- **日志留痕**：连接即自动记录（可关闭），可选每行时间戳，按会话与时间命名；一键打开日志目录。
-- **运维细节**：连接后自动发送命令（如 `terminal length 0`）、快捷命令按钮、按站点/机房分组、搜索回滚、查找高亮、GBK/UTF-8 编码、蓝牙串口标识、手动重连。
-- **现代界面**：深色 Fluent 风格、自定义标题栏、标签页、自绘终端网格、等宽字体、清晰的中文回退。
-- **原生且轻**：单文件夹、免安装运行时（self-contained），可放在 U 盘里带走。
-
-## 厂商适配
-
-内置 13 家厂商模板，新建/编辑会话时选择厂商即可带出默认波特率、编码、分页命令和快捷命令；也可以在连接后根据设备启动信息自动识别。
+内置 13 家厂商模板。新建或编辑会话时选择厂商，会带出默认波特率、编码、分页命令和快捷命令；连接后也可以根据设备 Banner 自动识别。
 
 | 厂商 | 默认串口 | 自动关闭分页 | 编码 |
 |---|---|---|---|
@@ -43,22 +33,18 @@
 | Extreme EXOS | 9600 8N1 | `disable clipaging` | UTF-8 |
 | MikroTik RouterOS | 115200 8N1 | 不发送 | UTF-8 |
 
-- **自动识别**：连接后读取设备 Banner，识别到厂商后自动切换编码、应用快捷命令，并在首次出现登录提示符后发送分页命令。
-- **手动选择**：如果设备启动时没有 Banner（例如已经登录），在会话编辑器的「厂商」里选择对应模板，点「套用厂商模板」即可。
-- **通用 VT100**：不属于以上厂商时选「通用」，不会自动发送任何命令。
-- 分页命令与中文编码以设备手册和实际输出为准；国产设备中文乱码时优先切 GBK。
+分页命令和中文编码以设备手册和实际输出为准。国产设备出现中文乱码时，优先改用 GBK。
 
-## 快速开始
+## 使用
 
-1. 解压 `Lumen-1.1.13-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
-2. 双击 `Lumen.exe`。
-3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
-4. 没有设备也可以点「打开演示会话」体验完整界面。
-5. 首次启动会话列表为空，使用左侧快速连接或演示会话开始。
+1. 解压 `Lumen-1.1.13-win-x64.zip` 到可写目录，例如 `D:\Tools\Lumen`。
+2. 运行 `Lumen.exe`。
+3. 在左侧“快速连接”选择 COM 口和波特率，点击“连接控制台”。
+4. 没有设备时，可以点“打开演示会话”查看界面。
 
-> 首次运行会在程序目录生成 `data` 与 `logs`（便携模式）。如果希望把配置放到 `%APPDATA%\Lumen`，删除程序目录下的 `portable.flag` 即可。
+首次启动的会话列表为空。程序目录会生成 `data` 和 `logs`（便携模式）；删除 `portable.flag` 后，配置会改用 `%APPDATA%\Lumen`。
 
-## 常用快捷键
+## 快捷键
 
 | 快捷键 | 功能 |
 |---|---|
@@ -68,42 +54,41 @@
 | `Ctrl+1` — `Ctrl+9` | 跳到指定标签 |
 | `Ctrl+F` | 在当前会话中查找 |
 | `Ctrl+Shift+A` | 全选屏幕内容 |
-| `Ctrl+Shift+C` / `Ctrl+C` | 复制（有选区时复制，否则发送 Ctrl+C） |
-| `Ctrl+V` / `Ctrl+Shift+V` | 粘贴（带节流） |
+| `Ctrl+Shift+C` / `Ctrl+C` | 复制；无选区时发送 Ctrl+C |
+| `Ctrl+V` / `Ctrl+Shift+V` | 粘贴 |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | 放大 / 缩小 / 重置字号 |
 | `Shift+PageUp` / `Shift+PageDown` | 翻看回滚缓冲 |
 | `Shift+Home` / `Shift+End` | 跳到回滚顶部 / 底部 |
 | `F11` | 最大化 / 还原 |
-| `Ctrl+Break` | 发送串口 Break（也可点工具栏 Break） |
+| `Ctrl+Break` | 发送串口 Break |
 
 ## 数据与日志
 
-- 便携模式（默认）：`程序目录\data\sessions.json`、`settings.json`、`程序目录\logs\*.log`
+- 便携模式：`程序目录\data\sessions.json`、`settings.json`、`程序目录\logs\*.log`
 - 非便携模式：`%APPDATA%\Lumen\`、`文档\Lumen Logs\`
-- 会话编辑器中可覆盖单个会话的日志目录。
-- 日志为 UTF-8 纯文本，自动去除 ANSI 控制序列；可选行首时间戳。
-- 日志可能包含设备配置、SNMP community、接口地址等敏感信息；请限制日志目录权限，分享前先脱敏。
+- 可以在会话编辑器中单独指定日志目录。
+- 日志为 UTF-8 纯文本，自动去除 ANSI 控制序列；可以选择每行加时间戳。
+- 日志可能包含设备配置、SNMP community、接口地址等信息。请限制日志目录权限，分享前先脱敏。
 
-## 当前版本边界
+## 当前范围
 
-1.1 专注串口，以下功能**尚未包含**（架构已预留）：
+目前只做串口。以下功能不在 1.1 范围内：
 
 - SSH / Telnet / SFTP、端口转发、跳板机
 - XMODEM / YMODEM / ZMODEM 文件传输
 - 自动重连、批量群发、分屏
 - 浅色主题、脚本引擎、插件
-- 自绘终端中的中文输入法合成预览（中文显示与粘贴正常，CLI 输入以英文为主）
 
-## 从源码构建
+## 构建
 
-需要 **.NET 10 SDK**（Windows）：
+需要 .NET 10 SDK（Windows）：
 
 ```powershell
 dotnet build .\src\Lumen\Lumen.csproj -c Debug
 dotnet publish .\src\Lumen\Lumen.csproj -c Release -r win-x64 --self-contained true -o .\dist\Lumen
 ```
 
-或直接运行：
+或者直接运行：
 
 ```powershell
 .\build.ps1
@@ -115,35 +100,35 @@ dotnet publish .\src\Lumen\Lumen.csproj -c Release -r win-x64 --self-contained t
 dotnet run --project tests/Lumen.Tests/Lumen.Tests.csproj -c Release
 ```
 
-产物在 `dist\Lumen`，首次运行前会自动生成配置。发布包为 self-contained，目标机器无需安装 .NET。
+发布包是 self-contained 的 win-x64 目录，目标机器不需要安装 .NET。程序约 60 MB，主要体积来自 .NET 运行时。
 
 ## 目录结构
 
 ```text
 src/Lumen/
-  Controls/TerminalView*.cs    终端渲染、选区、查找、输入（分部类）
-  Terminal/                    VT 解析、屏幕缓冲、编码、按键编码
-  Serial/                      Win32 串口、端口枚举、演示会话
-  Services/                    会话存储、日志、设置
-  Views/                       会话编辑器、设置、确认对话框
-  Themes/                      深色主题与控件样式
-  MainWindow.xaml(.cs)         主窗口、标签、会话树（Tabs/Sessions/Actions 分部类）
-tests/Lumen.Tests/             17 项自检
+  Controls/       终端控件、UI Automation、IME
+  Terminal/       VT 解析、屏幕缓冲、编码、按键
+  Serial/         Win32 串口、端口枚举、演示会话
+  Services/       会话存储、日志、设置
+  Views/          会话编辑器、设置、确认框
+  Themes/         深色主题和控件样式
+  MainWindow.*    主窗口
+tests/Lumen.Tests/  自检
 ```
 
-## 已知说明
+## 说明
 
-- 串口层直接使用 `CreateFile` / `SetCommState` / `EscapeCommFunction`，不依赖 `System.IO.Ports`，因此支持 Break 与 DTR/RTS，且拔插时不会卡死。
-- 终端滚动缓冲默认 10,000 行，可在设置中调整。
-- 日志按会话名称与开始时间命名，同名会话不会覆盖。
-- 本版本未做代码签名，企业分发前建议使用内部证书签名，避免 SmartScreen 提示。
+- 串口层使用 `CreateFile` / `SetCommState` / `EscapeCommFunction`，不依赖 `System.IO.Ports`。
+- 终端默认保留 10,000 行回滚，可在设置中调整。
+- 关闭标签时会异步结束日志；退出程序时会等待日志写入完成。
+- 当前版本没有做代码签名，企业分发前建议使用内部证书签名，避免 SmartScreen 提示。
 
 ## License
 
-本项目使用 MIT License，详见 [LICENSE](LICENSE)。
+MIT，详见 [LICENSE](LICENSE)。
 
 SecureCRT 是 VanDyke Software 的商标；Lumen 与 VanDyke Software 无关联。
 
 ---
 
-Lumen Terminal 1.1.13 · 为网络运维打造的串口控制台
+Lumen Terminal 1.1.13
