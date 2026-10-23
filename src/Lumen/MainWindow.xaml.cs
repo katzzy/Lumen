@@ -326,7 +326,7 @@ public partial class MainWindow : Window
         var title = new TextBlock
         {
             Text = tab.Profile.Name,
-            FontSize = 11.5,
+            FontSize = 12,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = Res("Brush.TextSecondary")
@@ -1132,7 +1132,7 @@ public partial class MainWindow : Window
         stack.Children.Add(new TextBlock
         {
             Text = $"发送到 {profile.Name}",
-            FontSize = 11.5,
+            FontSize = 12,
             Foreground = Res("Brush.TextMuted"),
             Margin = new Thickness(0, 3, 0, 14)
         });
@@ -1148,12 +1148,12 @@ public partial class MainWindow : Window
                 ToolTip = command.Command
             };
             var row = new StackPanel();
-            row.Children.Add(new TextBlock { Text = command.Name, FontSize = 12.5 });
+            row.Children.Add(new TextBlock { Text = command.Name, FontSize = 13 });
             row.Children.Add(new TextBlock
             {
                 Text = command.Command,
                 FontFamily = (FontFamily)FindResource("Font.Mono"),
-                FontSize = 10.5,
+                FontSize = 11,
                 Foreground = Res("Brush.TextMuted"),
                 Margin = new Thickness(0, 2, 0, 0)
             });

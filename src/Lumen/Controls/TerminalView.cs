@@ -12,7 +12,7 @@ namespace Lumen.Controls;
 public sealed class TerminalView : FrameworkElement
 {
     private const double PadX = 12;
-    private const double PadY = 10;
+    private const double PadY = 8;
 
     private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
     private readonly Dictionary<uint, Pen> _pens = new();
@@ -28,6 +28,8 @@ public sealed class TerminalView : FrameworkElement
     private double _cellW = 8;
     private double _cellH = 18;
     private double _baselineFromTop = 14;
+    private double _dpiX = 1;
+    private double _dpiY = 1;
     private int _scrollOffset;
     private int _lastScrollbackCount;
     private bool _selecting;
@@ -47,8 +49,10 @@ public sealed class TerminalView : FrameworkElement
         ClipToBounds = true;
         Cursor = Cursors.IBeam;
         SnapsToDevicePixels = true;
+        UseLayoutRounding = true;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
+        RenderOptions.SetClearTypeHint(this, ClearTypeHint.Enabled);
 
         _regular = CreateTypeface(FontStyles.Normal, FontWeights.Normal);
         _bold = CreateTypeface(FontStyles.Normal, FontWeights.Bold);
@@ -161,18 +165,21 @@ public sealed class TerminalView : FrameworkElement
                 _fontSize,
                 Brushes.White,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
-            _cellW = Math.Max(4, ft.WidthIncludingTrailingWhitespace);
-            _cellH = Math.Max(10, Math.Round(_fontSize * 1.38));
+            var dpi = VisualTreeHelper.GetDpi(this);
+            _dpiX = dpi.DpiScaleX;
+            _dpiY = dpi.DpiScaleY;
+            _cellW = Math.Max(4, SnapUpX(ft.WidthIncludingTrailingWhitespace));
+            _cellH = Math.Max(10, SnapUpY(_fontSize * 1.38));
             double baseline = _fontSize * 0.82;
             if (_regular.TryGetGlyphTypeface(out var glyph))
             {
                 baseline = glyph.Baseline * _fontSize;
                 double em = glyph.Height * _fontSize;
-                _baselineFromTop = Math.Round((_cellH - em) / 2 + baseline);
+                _baselineFromTop = SnapY((_cellH - em) / 2 + baseline);
             }
             else
             {
-                _baselineFromTop = Math.Round(_fontSize);
+                _baselineFromTop = SnapY(_fontSize);
             }
             _brushCacheClear();
         }
@@ -188,6 +195,11 @@ public sealed class TerminalView : FrameworkElement
         _brushes.Clear();
         _pens.Clear();
     }
+
+    private double SnapX(double value) => _dpiX <= 0 ? value : Math.Round(value * _dpiX) / _dpiX;
+    private double SnapY(double value) => _dpiY <= 0 ? value : Math.Round(value * _dpiY) / _dpiY;
+    private double SnapUpX(double value) => _dpiX <= 0 ? value : Math.Ceiling(value * _dpiX) / _dpiX;
+    private double SnapUpY(double value) => _dpiY <= 0 ? value : Math.Ceiling(value * _dpiY) / _dpiY;
 
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
@@ -304,8 +316,8 @@ public sealed class TerminalView : FrameworkElement
             Brush(WithAlpha(Palette.DefaultForeground, 92)),
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(ft, new Point(
-            Math.Max(PadX, (ActualWidth - ft.Width) / 2),
-            Math.Max(PadY, (ActualHeight - ft.Height) / 2)));
+            SnapX(Math.Max(PadX, (ActualWidth - ft.Width) / 2)),
+            SnapY(Math.Max(PadY, (ActualHeight - ft.Height) / 2))));
     }
 
     private double VisibleRows => Math.Max(1, (int)((ActualHeight - PadY * 2) / _cellH));    private int MaxScrollOffset()
@@ -434,17 +446,24 @@ public sealed class TerminalView : FrameworkElement
                 TextAlignment = TextAlignment.Left
             };
 
-            double x = PadX + start * _cellW;
-            double top = y + _baselineFromTop - ft.Baseline;
+            double x = SnapX(PadX + start * _cellW);
+            double top = SnapY(y + _baselineFromTop - ft.Baseline);
+            var guidelines = new GuidelineSet();
+            guidelines.GuidelinesX.Add(x);
+            guidelines.GuidelinesY.Add(top);
+            dc.PushGuidelineSet(guidelines);
             dc.DrawText(ft, new Point(x, top));
+            dc.Pop();
 
             if ((runFlags & CellFlags.Underline) != 0)
             {
-                dc.DrawLine(LinePen(runFg), new Point(x, y + _cellH - 1.5), new Point(x + (c - start) * _cellW, y + _cellH - 1.5));
+                double lineY = SnapY(y + _cellH - 1);
+                dc.DrawLine(LinePen(runFg), new Point(x, lineY), new Point(SnapX(x + (c - start) * _cellW), lineY));
             }
             if ((runFlags & CellFlags.Strike) != 0)
             {
-                dc.DrawLine(LinePen(runFg), new Point(x, y + _cellH / 2), new Point(x + (c - start) * _cellW, y + _cellH / 2));
+                double lineY = SnapY(y + _cellH / 2);
+                dc.DrawLine(LinePen(runFg), new Point(x, lineY), new Point(SnapX(x + (c - start) * _cellW), lineY));
             }
         }
 
@@ -477,9 +496,14 @@ public sealed class TerminalView : FrameworkElement
             _fontSize,
             Brush(fg),
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        double x = PadX + col * _cellW;
-        double top = y + _baselineFromTop - ft.Baseline;
+        double x = SnapX(PadX + col * _cellW);
+        double top = SnapY(y + _baselineFromTop - ft.Baseline);
+        var guidelines = new GuidelineSet();
+        guidelines.GuidelinesX.Add(x);
+        guidelines.GuidelinesY.Add(top);
+        dc.PushGuidelineSet(guidelines);
         dc.DrawText(ft, new Point(x, top));
+        dc.Pop();
     }
 
     private Cell GetCell(TerminalLine line, int col)

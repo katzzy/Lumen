@@ -38,7 +38,7 @@
             </Grid>
             <TextBlock x:Name="MessageText"
                        Text=""
-                       FontSize="12.5"
+                       FontSize="13"
                        Foreground="{StaticResource Brush.TextSecondary}"
                        TextWrapping="Wrap"
                        LineHeight="20"

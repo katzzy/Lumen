@@ -8,6 +8,7 @@
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+        <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
     </Style>
 
     <Style x:Key="Text.Secondary" TargetType="TextBlock">
@@ -17,7 +18,7 @@
 
     <Style x:Key="Text.Muted" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource Brush.TextMuted}" />
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="12" />
     </Style>
 
     <Style x:Key="Text.Section" TargetType="TextBlock">
@@ -35,7 +36,7 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="12,7" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -216,7 +217,7 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="CaretBrush" Value="{StaticResource Brush.Accent}" />
         <Setter Property="SelectionBrush" Value="{StaticResource Brush.Accent}" />
         <Setter Property="SelectionOpacity" Value="0.35" />
@@ -253,7 +254,7 @@
     <Style x:Key="ComboItem" TargetType="ComboBoxItem">
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Padding" Value="10,8" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="Template">
@@ -281,7 +282,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource Brush.Border}" />
         <Setter Property="Height" Value="34" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="ItemContainerStyle" Value="{StaticResource ComboItem}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
@@ -360,7 +361,7 @@
     <Style x:Key="Check" TargetType="CheckBox">
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
@@ -483,7 +484,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource Brush.Border}" />
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ContextMenu">
@@ -502,7 +503,7 @@
     <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
