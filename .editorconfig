@@ -1,0 +1,13 @@
+root = true
+
+[*.cs]
+# Cell/TerminalLine use public fields for hot-path rendering performance.
+dotnet_diagnostic.CA1051.severity = none
+# "CellFlags" is a stable domain name used throughout the terminal engine.
+dotnet_diagnostic.CA1711.severity = none
+# UI number formatting intentionally follows the current culture.
+dotnet_diagnostic.CA1305.severity = none
+# App owns a Mutex released in OnExit; Application is not IDisposable.
+dotnet_diagnostic.CA1001.severity = none
+# OnRender's "dc" parameter name matches the existing renderer.
+dotnet_diagnostic.CA1725.severity = none

@@ -433,13 +433,13 @@ public sealed class VtParser
                 break;
             case 'H':
             case 'f':
-            {
-                int row = P(0, 1) - 1;
-                int col = P(1, 1) - 1;
-                if (_b.OriginMode) row += _b.ScrollTop;
-                _b.SetCursor(row, col);
-                break;
-            }
+                {
+                    int row = P(0, 1) - 1;
+                    int col = P(1, 1) - 1;
+                    if (_b.OriginMode) row += _b.ScrollTop;
+                    _b.SetCursor(row, col);
+                    break;
+                }
             case 'I':
                 _b.Tab(P(0, 1));
                 break;
@@ -488,12 +488,12 @@ public sealed class VtParser
                 else Response?.Invoke("\x1b[?1;2c");
                 break;
             case 'd':
-            {
-                int row = P(0, 1) - 1;
-                if (_b.OriginMode) row += _b.ScrollTop;
-                _b.MoveCursor(row - _b.CursorRow, 0);
-                break;
-            }
+                {
+                    int row = P(0, 1) - 1;
+                    if (_b.OriginMode) row += _b.ScrollTop;
+                    _b.MoveCursor(row - _b.CursorRow, 0);
+                    break;
+                }
             case 'e':
                 _b.MoveCursor(P(0, 1), 0);
                 break;
@@ -520,12 +520,12 @@ public sealed class VtParser
                 }
                 break;
             case 'r':
-            {
-                int top = P(0, 1) - 1;
-                int bottom = P(1, _b.Rows) - 1;
-                _b.SetScrollRegion(top, bottom);
-                break;
-            }
+                {
+                    int top = P(0, 1) - 1;
+                    int bottom = P(1, _b.Rows) - 1;
+                    _b.SetScrollRegion(top, bottom);
+                    break;
+                }
             case 's':
                 _b.SaveCursor();
                 break;

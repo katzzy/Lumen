@@ -45,7 +45,6 @@ public sealed class TerminalSession : IDisposable
             TitleChanged?.Invoke();
         };
         _parser.Response = text => SendText(text);
-        _parser.Bell = () => Bell?.Invoke();
 
         _transport.DataReceived += OnDataReceived;
         _transport.Disconnected += OnDisconnected;
@@ -67,9 +66,10 @@ public sealed class TerminalSession : IDisposable
     public event Action? Updated;
     public event Action? StateChanged;
     public event Action? TitleChanged;
-    public event Action? Bell;
     public event Action<int, int>? PasteProgress;
     public event Action<VendorProfile>? VendorDetected;
+
+    private static readonly char[] InitSeparators = { '\r', '\n' };
 
     public async Task<bool> ConnectAsync()
     {
@@ -88,7 +88,7 @@ public sealed class TerminalSession : IDisposable
             if (_profile.AutoLog && _settings.AutoLog) StartLog();
 
             var commands = _profile.InitCommands
-                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Split(InitSeparators, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
                 .Where(s => s.Length > 0)
                 .ToList();
@@ -141,9 +141,9 @@ public sealed class TerminalSession : IDisposable
             MaybeAutoPage();
             Updated?.Invoke();
         }
-        catch
+        catch (Exception ex)
         {
-            // Decoding must never take the session down.
+            App.LogError("terminal feed", ex);
         }
     }
 
@@ -354,9 +354,9 @@ public sealed class TerminalSession : IDisposable
             var path = LogService.BuildFilePath(root, _profile.Name);
             _log.Start(path, timestamps ?? _settings.LogTimestamps, new UTF8Encoding(false));
         }
-        catch
+        catch (Exception ex)
         {
-            // logging is best-effort
+            App.LogError("start log", ex);
         }
     }
 

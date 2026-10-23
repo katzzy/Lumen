@@ -39,7 +39,7 @@ public sealed class TerminalAutomationPeer : FrameworkElementAutomationPeer, ITe
 
     public ITextRangeProvider[] GetVisibleRanges() => new ITextRangeProvider[] { DocumentRange };
 
-    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple child) => DocumentRange;
+    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple childElement) => DocumentRange;
 
     public ITextRangeProvider RangeFromPoint(Point screenLocation) => DocumentRange;
 

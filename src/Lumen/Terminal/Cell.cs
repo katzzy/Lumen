@@ -26,9 +26,6 @@ public struct Cell
 
     public static Cell Empty => new() { Rune = ' ', Fg = 0, Bg = 0, Flags = CellFlags.None };
 
-    public readonly bool IsBlank =>
-        (Rune == ' ' || Rune == 0) && Fg == 0 && Bg == 0 && Flags == CellFlags.None && Combining is null;
-
     public readonly Cell WithRune(int rune) => new()
     {
         Rune = rune,

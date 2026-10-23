@@ -12,8 +12,6 @@ public sealed class AppSettings
     public bool LogTimestamps { get; set; }
     public bool ConfirmDangerousPaste { get; set; } = true;
     public int DefaultPasteDelayMs { get; set; } = 100;
-    public string LastSessionId { get; set; } = "";
-    public bool ShowWelcome { get; set; } = true;
 
     [JsonIgnore]
     public string EffectiveLogRoot => string.IsNullOrWhiteSpace(LogRoot)

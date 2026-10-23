@@ -87,9 +87,7 @@ public partial class SettingsView : UserControl
             AutoLog = AutoLogCheck.IsChecked == true,
             LogTimestamps = TimestampCheck.IsChecked == true,
             ConfirmDangerousPaste = ConfirmPasteCheck.IsChecked == true,
-            DefaultPasteDelayMs = delay,
-            LastSessionId = _settings.LastSessionId,
-            ShowWelcome = _settings.ShowWelcome
+            DefaultPasteDelayMs = delay
         };
 
         Saved?.Invoke(updated);

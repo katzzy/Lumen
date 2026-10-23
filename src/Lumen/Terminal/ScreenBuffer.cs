@@ -741,5 +741,4 @@ public sealed class ScreenBuffer
         _pen = Cell.Empty;
     }
 
-    public string GetDisplayText() => "ScreenBuffer";
 }

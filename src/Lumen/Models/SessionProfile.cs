@@ -31,17 +31,7 @@ public sealed class SessionProfile
     public static SessionProfile CreateDefault(string name = "新会话", string group = "默认分组") => new()
     {
         Name = name,
-        Group = group,
-        QuickCommands = DefaultQuickCommands()
-    };
-
-    public static List<QuickCommand> DefaultQuickCommands() => new()
-    {
-        new QuickCommand { Name = "特权模式", Command = "enable" },
-        new QuickCommand { Name = "查看版本", Command = "show version" },
-        new QuickCommand { Name = "查看配置", Command = "show running-config", Confirm = true },
-        new QuickCommand { Name = "接口状态", Command = "show ip interface brief" },
-        new QuickCommand { Name = "关闭分页", Command = "terminal length 0" }
+        Group = group
     };
 
     public SessionProfile Clone()

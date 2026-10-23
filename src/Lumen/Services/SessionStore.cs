@@ -28,8 +28,9 @@ public sealed class SessionStore
                 Sessions = JsonSerializer.Deserialize<List<SessionProfile>>(json, JsonOptions) ?? new();
             }
         }
-        catch
+        catch (Exception ex)
         {
+            App.LogError("session load", ex);
             Sessions = new();
         }
 
@@ -42,7 +43,6 @@ public sealed class SessionStore
         foreach (var session in Sessions)
         {
             if (string.IsNullOrWhiteSpace(session.Id)) session.Id = Guid.NewGuid().ToString("N");
-            if (session.QuickCommands.Count == 0) session.QuickCommands = SessionProfile.DefaultQuickCommands();
         }
     }
 
@@ -56,9 +56,9 @@ public sealed class SessionStore
             File.WriteAllText(tmp, json, new UTF8Encoding(false));
             File.Move(tmp, AppPaths.SessionsFile, true);
         }
-        catch
+        catch (Exception ex)
         {
-            // best effort
+            App.LogError("session save", ex);
         }
     }
 
@@ -82,17 +82,5 @@ public sealed class SessionStore
         Save();
     }
 
-    private static List<SessionProfile> CreateSeedSessions()
-    {
-        var a = SessionProfile.CreateDefault("核心交换机（示例）", "示例设备");
-        a.Serial.PortName = "COM3";
-        a.Serial.BaudRate = 9600;
-        a.InitCommands = "terminal length 0";
-
-        var b = SessionProfile.CreateDefault("接入交换机（示例）", "示例设备");
-        b.Serial.PortName = "COM4";
-        b.Serial.BaudRate = 9600;
-
-        return new List<SessionProfile> { a, b };
-    }
+    private static List<SessionProfile> CreateSeedSessions() => new();
 }

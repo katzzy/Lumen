@@ -46,8 +46,6 @@ public sealed class TerminalLine
         Wrapped = false;
     }
 
-    public TerminalLine Clone() => new((Cell[])Cells.Clone(), Wrapped);
-
     public string GetText(int start = 0, int length = -1)
     {
         if (length < 0) length = Cells.Length - start;

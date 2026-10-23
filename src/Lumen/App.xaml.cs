@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -25,11 +27,14 @@ public partial class App : Application
             _ownsInstanceMutex = createdNew;
             if (!createdNew)
             {
-                MessageBox.Show(
-                    "Lumen 已在运行，请在任务栏切换到已有窗口。",
-                    "Lumen Terminal",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                if (!ActivateExistingWindow())
+                {
+                    MessageBox.Show(
+                        "Lumen 已在运行，请在任务栏切换到已有窗口。",
+                        "Lumen Terminal",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
                 Shutdown();
                 return;
             }
@@ -66,6 +71,59 @@ public partial class App : Application
         base.OnExit(e);
     }
 
+    private static bool ActivateExistingWindow()
+    {
+        try
+        {
+            using var current = Process.GetCurrentProcess();
+            foreach (var process in Process.GetProcessesByName(current.ProcessName))
+            {
+                if (process.Id == current.Id) continue;
+                IntPtr handle = process.MainWindowHandle;
+                if (handle == IntPtr.Zero)
+                {
+                    process.Refresh();
+                    handle = process.MainWindowHandle;
+                }
+                if (handle == IntPtr.Zero) continue;
+
+                ShowWindow(handle, SwRestore);
+                SetForegroundWindow(handle);
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall through to the informational dialog.
+        }
+        return false;
+    }
+
+    public static void LogError(string context, Exception exception)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.DataDirectory);
+            File.AppendAllText(
+                AppPaths.CrashLogFile,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{context}] {exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
+    private const int SwRestore = 9;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         WriteCrashLog(e.Exception);
@@ -80,16 +138,6 @@ public partial class App : Application
     private static void WriteCrashLog(Exception? exception)
     {
         if (exception is null) return;
-        try
-        {
-            Directory.CreateDirectory(AppPaths.DataDirectory);
-            File.AppendAllText(
-                AppPaths.CrashLogFile,
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {exception}{Environment.NewLine}{Environment.NewLine}");
-        }
-        catch
-        {
-            // best effort
-        }
+        LogError("unhandled", exception);
     }
 }

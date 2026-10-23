@@ -27,12 +27,15 @@ Remove-Item (Join-Path $out "Lumen.pdb") -Force -ErrorAction SilentlyContinue
 
 New-Item -ItemType File -Path (Join-Path $out "portable.flag") -Force | Out-Null
 Copy-Item (Join-Path $root "README.md") (Join-Path $out "README.md") -Force
+if (Test-Path (Join-Path $root "LICENSE")) {
+    Copy-Item (Join-Path $root "LICENSE") (Join-Path $out "LICENSE") -Force
+}
 if (Test-Path (Join-Path $root "screenshot.png")) {
     Copy-Item (Join-Path $root "screenshot.png") (Join-Path $out "screenshot.png") -Force
 }
 
 if (-not $NoZip) {
-    $zip = Join-Path $root "dist\Lumen-1.1.7-win-x64.zip"
+    $zip = Join-Path $root "dist\Lumen-1.1.8-win-x64.zip"
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLevel Optimal
     Write-Host "Package: $zip"

@@ -1,4 +1,4 @@
-# Lumen Terminal 1.1.7
+# Lumen Terminal 1.1.8
 
 面向网络运维的 Windows 原生串口控制台，SecureCRT 的轻量替代品。**不使用任何 Web 技术**：界面为 WPF + XAML，终端为 DirectWrite 自绘，串口直接调用 Win32 API。
 
@@ -43,10 +43,11 @@
 
 ## 快速开始
 
-1. 解压 `Lumen-1.1.7-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
+1. 解压 `Lumen-1.1.8-win-x64.zip` 到任意**可写目录**（例如 `D:\Tools\Lumen`）。
 2. 双击 `Lumen.exe`。
 3. 在左侧「快速连接」选择 COM 口与波特率，点击「连接控制台」。
 4. 没有设备也可以点「打开演示会话」体验完整界面。
+5. 首次启动会话列表为空，使用左侧快速连接或演示会话开始。
 
 > 首次运行会在程序目录生成 `data` 与 `logs`（便携模式）。如果希望把配置放到 `%APPDATA%\Lumen`，删除程序目录下的 `portable.flag` 即可。
 
@@ -74,6 +75,7 @@
 - 非便携模式：`%APPDATA%\Lumen\`、`文档\Lumen Logs\`
 - 会话编辑器中可覆盖单个会话的日志目录。
 - 日志为 UTF-8 纯文本，自动去除 ANSI 控制序列；可选行首时间戳。
+- 日志可能包含设备配置、SNMP community、接口地址等敏感信息；请限制日志目录权限，分享前先脱敏。
 
 ## 当前版本边界
 
@@ -100,19 +102,25 @@ dotnet publish .\src\Lumen\Lumen.csproj -c Release -r win-x64 --self-contained t
 .\build.ps1
 ```
 
+测试：
+
+```powershell
+dotnet run --project tests/Lumen.Tests/Lumen.Tests.csproj -c Release
+```
+
 产物在 `dist\Lumen`，首次运行前会自动生成配置。发布包为 self-contained，目标机器无需安装 .NET。
 
 ## 目录结构
 
 ```
 src/Lumen/
-  Controls/TerminalView.cs     终端渲染、选区、查找、输入
+  Controls/TerminalView*.cs    终端渲染、选区、查找、输入（分部类）
   Terminal/                    VT 解析、屏幕缓冲、编码、按键编码
   Serial/                      Win32 串口、端口枚举、演示会话
   Services/                    会话存储、日志、设置
   Views/                       会话编辑器、设置、确认对话框
   Themes/                      深色主题与控件样式
-  MainWindow.xaml(.cs)         主窗口、标签、会话树
+  MainWindow.xaml(.cs)         主窗口、标签、会话树（Tabs/Sessions/Actions 分部类）
 ```
 
 ## 已知说明
@@ -122,6 +130,12 @@ src/Lumen/
 - 日志按会话名称与开始时间命名，同名会话不会覆盖。
 - 本版本未做代码签名，企业分发前建议使用内部证书签名，避免 SmartScreen 提示。
 
+## License
+
+本项目使用 MIT License，详见 [LICENSE](LICENSE)。
+
+SecureCRT 是 VanDyke Software 的商标；Lumen 与 VanDyke Software 无关联。
+
 ---
 
-Lumen Terminal 1.1.7 · 为网络运维打造的串口控制台
+Lumen Terminal 1.1.8 · 为网络运维打造的串口控制台

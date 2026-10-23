@@ -25,9 +25,9 @@ public static class SettingsService
                 if (settings is not null) return settings;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // corrupted settings fall through to defaults
+            App.LogError("settings load", ex);
         }
         return new AppSettings();
     }
@@ -40,9 +40,9 @@ public static class SettingsService
             var json = JsonSerializer.Serialize(settings, JsonOptions);
             File.WriteAllText(AppPaths.SettingsFile, json, new UTF8Encoding(false));
         }
-        catch
+        catch (Exception ex)
         {
-            // best effort
+            App.LogError("settings save", ex);
         }
     }
 }

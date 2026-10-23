@@ -1,11 +1,18 @@
 using System.IO;
 using System.Text;
+using System.Threading.Channels;
 
 namespace Lumen.Services;
 
 public sealed class LogService : IDisposable
 {
+    private readonly object _gate = new();
+    private Channel<LogEntry>? _queue;
+    private Task? _worker;
     private StreamWriter? _writer;
+    private string? _filePath;
+    private bool _active;
+
     private bool _atLineStart = true;
     private bool _skipLineFeed;
     private StripState _stripState = StripState.Text;
@@ -22,8 +29,26 @@ public sealed class LogService : IDisposable
         DcsEscape
     }
 
-    public string? FilePath { get; private set; }
-    public bool IsActive => _writer is not null;
+    private enum EntryKind
+    {
+        Receive,
+        Transmit,
+        Flush,
+        Stop
+    }
+
+    private readonly record struct LogEntry(EntryKind Kind, string Text = "");
+
+    public string? FilePath
+    {
+        get { lock (_gate) return _filePath; }
+    }
+
+    public bool IsActive
+    {
+        get { lock (_gate) return _active; }
+    }
+
     public bool TimestampEnabled { get; private set; }
 
     public static string BuildFilePath(string root, string sessionName)
@@ -57,19 +82,133 @@ public sealed class LogService : IDisposable
         Stop();
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-        _writer = new StreamWriter(stream, encoding) { AutoFlush = false };
-        FilePath = path;
+        var writer = new StreamWriter(stream, encoding) { AutoFlush = false };
+        var queue = Channel.CreateUnbounded<LogEntry>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        lock (_gate)
+        {
+            _writer = writer;
+            _filePath = path;
+            _active = true;
+            _queue = queue;
+        }
+
         TimestampEnabled = timestamp;
         _atLineStart = true;
+        _skipLineFeed = false;
         _stripState = StripState.Text;
         _pendingChars = 0;
         if (timestamp)
         {
-            _writer.Write($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 会话开始{Environment.NewLine}");
+            writer.Write($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 会话开始{Environment.NewLine}");
         }
+
+        _worker = Task.Run(() => ProcessAsync(queue.Reader));
     }
 
     public void Write(string text)
+    {
+        if (text.Length == 0) return;
+        Channel<LogEntry>? queue;
+        lock (_gate) queue = _queue;
+        queue?.Writer.TryWrite(new LogEntry(EntryKind.Receive, text));
+    }
+
+    public void WriteTx(string command)
+    {
+        command = command.TrimEnd('\r', '\n');
+        if (command.Length == 0) return;
+        Channel<LogEntry>? queue;
+        lock (_gate) queue = _queue;
+        queue?.Writer.TryWrite(new LogEntry(EntryKind.Transmit, command));
+    }
+
+    public void Flush()
+    {
+        Channel<LogEntry>? queue;
+        lock (_gate) queue = _queue;
+        queue?.Writer.TryWrite(new LogEntry(EntryKind.Flush));
+    }
+
+    public void Stop()
+    {
+        Channel<LogEntry>? queue;
+        Task? worker;
+        lock (_gate)
+        {
+            queue = _queue;
+            worker = _worker;
+            _queue = null;
+            _worker = null;
+            _active = false;
+        }
+
+        if (queue is null) return;
+        queue.Writer.TryWrite(new LogEntry(EntryKind.Stop));
+        queue.Writer.TryComplete();
+        try
+        {
+            worker?.Wait(3000);
+        }
+        catch
+        {
+            // best effort
+        }
+
+        lock (_gate)
+        {
+            _filePath = null;
+        }
+    }
+
+    private async Task ProcessAsync(ChannelReader<LogEntry> reader)
+    {
+        try
+        {
+            await foreach (var entry in reader.ReadAllAsync().ConfigureAwait(false))
+            {
+                switch (entry.Kind)
+                {
+                    case EntryKind.Receive:
+                        WriteRaw(entry.Text);
+                        break;
+                    case EntryKind.Transmit:
+                        WriteTxCore(entry.Text);
+                        break;
+                    case EntryKind.Flush:
+                        FlushCore();
+                        break;
+                    case EntryKind.Stop:
+                        FlushCore();
+                        WriteEnd();
+                        return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            App.LogError("log writer", ex);
+        }
+        finally
+        {
+            try
+            {
+                _writer?.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+            _writer = null;
+            lock (_gate) _active = false;
+        }
+    }
+
+    private void WriteRaw(string text)
     {
         if (_writer is null) return;
         foreach (char ch in text)
@@ -118,10 +257,7 @@ public sealed class LogService : IDisposable
         }
 
         _pendingChars += text.Length;
-        if (_pendingChars >= 8192)
-        {
-            Flush();
-        }
+        if (_pendingChars >= 8192) FlushCore();
     }
 
     private void WriteVisible(char ch)
@@ -154,11 +290,9 @@ public sealed class LogService : IDisposable
         _writer.Write(ch);
     }
 
-    public void WriteTx(string command)
+    private void WriteTxCore(string command)
     {
         if (_writer is null) return;
-        command = command.TrimEnd('\r', '\n');
-        if (command.Length == 0) return;
 
         if (!_atLineStart)
         {
@@ -171,25 +305,26 @@ public sealed class LogService : IDisposable
         _writer.Write(command);
         _writer.Write(Environment.NewLine);
         _atLineStart = true;
+        _skipLineFeed = false;
 
         _pendingChars += command.Length + 8;
-        if (_pendingChars >= 8192) Flush();
+        if (_pendingChars >= 8192) FlushCore();
     }
 
-    public void Flush()
+    private void FlushCore()
     {
         try
         {
             _writer?.Flush();
             _pendingChars = 0;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            App.LogError("log flush", ex);
         }
     }
 
-    public void Stop()
+    private void WriteEnd()
     {
         if (_writer is null) return;
         try
@@ -199,15 +334,11 @@ public sealed class LogService : IDisposable
                 _writer.Write($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 会话结束{Environment.NewLine}");
             }
             _writer.Flush();
-            _writer.Dispose();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            App.LogError("log stop", ex);
         }
-        _writer = null;
-        FilePath = null;
-        _atLineStart = true;
     }
 
     public void Dispose() => Stop();

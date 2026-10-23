@@ -35,7 +35,6 @@ public sealed class SerialConfig
     public SerialFlowControl FlowControl { get; set; } = SerialFlowControl.None;
     public bool Dtr { get; set; } = true;
     public bool Rts { get; set; } = true;
-    public bool BreakOnConnect { get; set; }
 
     public SerialConfig Clone() => (SerialConfig)MemberwiseClone();
 
