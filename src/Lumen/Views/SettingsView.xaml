@@ -25,7 +25,7 @@
                                FontFamily="{StaticResource Font.Display}"
                                FontSize="17"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="显示、记录与粘贴行为"
+                    <TextBlock Text="显示、日志、连接与粘贴"
                                FontSize="11"
                                Foreground="{StaticResource Brush.TextMuted}"
                                Margin="0,2,0,0" />
@@ -119,7 +119,7 @@
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        TextWrapping="Wrap"
                                        Margin="0,5,0,0" />
-                            <TextBlock Text="Lumen 1.3 · 为网络运维打造的串口控制台"
+                            <TextBlock Text="Lumen 1.4 · 为网络运维打造的串口控制台"
                                        FontSize="11"
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        Margin="0,10,0,0" />

@@ -53,6 +53,14 @@ public partial class MainWindow
         if (SessionList.SelectedItem is SessionProfile profile) ShowSessionEditor(profile, false);
     }
 
+    private void SessionContext_Automation(object sender, RoutedEventArgs e)
+    {
+        if (SessionList.SelectedItem is SessionProfile profile)
+        {
+            OpenAutomationForProfile(profile, persist: true);
+        }
+    }
+
     private void SessionContext_Duplicate(object sender, RoutedEventArgs e)
     {
         if (SessionList.SelectedItem is not SessionProfile profile) return;

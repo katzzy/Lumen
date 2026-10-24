@@ -29,6 +29,7 @@ public partial class MainWindow
     private void ShowOverlay(FrameworkElement content)
     {
         OverlayHost.Children.Clear();
+        ApplyOverlaySize(content);
         content.HorizontalAlignment = HorizontalAlignment.Center;
         content.VerticalAlignment = VerticalAlignment.Center;
         var translate = new TranslateTransform(0, 12);
@@ -79,6 +80,11 @@ public partial class MainWindow
             SetStatus("会话未连接，无法粘贴", true);
             return;
         }
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法粘贴", true);
+            return;
+        }
 
         if (tab.Profile.ConfirmDangerousPaste && ContainsDangerousCommand(text))
         {
@@ -96,6 +102,24 @@ public partial class MainWindow
         int charDelay = Math.Clamp(tab.Profile.SendCharDelayMs, 0, 1000);
         int echoTimeout = Math.Clamp(tab.Profile.EchoTimeoutMs, 200, 60000);
         var echoHint = tab.Profile.WaitForEcho ? $"，每行等待回显（最多 {echoTimeout} ms）" : "";
+
+        if (_broadcast)
+        {
+            var targets = BroadcastTargets().ToList();
+            if (targets.Count == 0)
+            {
+                SetStatus("没有可群发的已连接会话", true);
+                return;
+            }
+
+            SetStatus($"正在群发粘贴到 {targets.Count} 个会话…");
+            var tasks = targets
+                .Select(target => target.Session.PasteAsync(text, delay, charDelay, false, echoTimeout))
+                .ToArray();
+            bool[] results = await Task.WhenAll(tasks);
+            SetStatus($"群发粘贴完成：{results.Count(ok => ok)}/{targets.Count}");
+            return;
+        }
 
         SetStatus($"正在粘贴（字符 {charDelay} ms / 行 {delay} ms{echoHint}，Esc 取消）…");
         bool completed = await tab.Session.PasteAsync(
@@ -164,6 +188,11 @@ public partial class MainWindow
 
     private async Task SendBreakAsync(TabEntry tab)
     {
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法发送 Break", true);
+            return;
+        }
         await tab.Session.SendBreakAsync();
         SetStatus($"已发送 Break（{tab.Session.BreakDurationMs} ms）");
     }
@@ -188,6 +217,11 @@ public partial class MainWindow
             SetStatus("没有活动会话", true);
             return;
         }
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法发送字节", true);
+            return;
+        }
 
         var view = new SendBytesView(
             Lumen.Terminal.EncodingUtil.Resolve(tab.Profile.Encoding),
@@ -208,6 +242,11 @@ public partial class MainWindow
         if (tab is null || !tab.Session.IsConnected)
         {
             SetStatus("会话未连接，无法传输文件", true);
+            return;
+        }
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法传输文件", true);
             return;
         }
         if (tab.Session.IsTransferActive)

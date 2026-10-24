@@ -42,6 +42,10 @@ public sealed class SessionProfile
     public string InitCommands { get; set; } = "";
     public bool ConfirmDangerousPaste { get; set; } = true;
     public List<QuickCommand> QuickCommands { get; set; } = new();
+    public string Script { get; set; } = "";
+    public bool ScriptAutoRun { get; set; }
+    public List<ExpectRule> ExpectRules { get; set; } = new();
+    public List<HighlightRule> HighlightRules { get; set; } = new();
 
     public static SessionProfile CreateDefault(string name = "新会话", string group = "默认分组") => new()
     {
@@ -54,6 +58,8 @@ public sealed class SessionProfile
         var clone = (SessionProfile)MemberwiseClone();
         clone.Serial = Serial.Clone();
         clone.QuickCommands = QuickCommands.Select(q => q.Clone()).ToList();
+        clone.ExpectRules = ExpectRules.Select(r => r.Clone()).ToList();
+        clone.HighlightRules = HighlightRules.Select(r => r.Clone()).ToList();
         return clone;
     }
 

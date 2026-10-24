@@ -31,6 +31,8 @@ public sealed class TerminalSession : IDisposable
     private CancellationTokenSource? _transferCts;
     private readonly object _echoLock = new();
     private readonly StringBuilder _echo = new();
+    private CancellationTokenSource? _scriptCts;
+    private int _scriptRunning;
 
     public TerminalSession(SessionProfile profile, ITerminalTransport transport, AppSettings settings)
     {
@@ -56,6 +58,9 @@ public sealed class TerminalSession : IDisposable
         };
         _parser.Response = text => SendText(text);
 
+        Automation = new AutomationRuntime { SendText = text => SendText(text) };
+        Automation.Update(_profile.ExpectRules, _profile.HighlightRules);
+
         _transport.DataReceived += OnDataReceived;
         _transport.Disconnected += OnDisconnected;
         _transport.Reconnected += OnReconnected;
@@ -64,12 +69,14 @@ public sealed class TerminalSession : IDisposable
     public SessionProfile Profile => _profile;
     public ITerminalTransport Transport => _transport;
     public ScreenBuffer Buffer => _buffer;
+    public AutomationRuntime Automation { get; }
     public HexBuffer Hex { get; } = new(1024 * 1024);
     public int BreakDurationMs => _profile.Serial.EffectiveBreakDurationMs;
     public bool IsReconnecting => _transport.IsReconnecting;
     public VendorProfile? Vendor => _vendor;
     public bool IsConnected { get; private set; }
     public bool IsPasting { get; private set; }
+    public bool InputLocked { get; set; }
     public bool IsTransferActive => Volatile.Read(ref _transferChannel) is not null;
     public string Title { get; private set; } = "";
     public string? LogPath => _log.FilePath;
@@ -118,6 +125,11 @@ public sealed class TerminalSession : IDisposable
                     SendText(command + "\r");
                     await Task.Delay(160);
                 }
+            }
+
+            if (_profile.ScriptAutoRun && !string.IsNullOrWhiteSpace(_profile.Script))
+            {
+                _ = RunScriptAsync(null, CancellationToken.None);
             }
 
             return !_disposed;
@@ -175,6 +187,7 @@ public sealed class TerminalSession : IDisposable
                 _echo.Append(text);
                 if (_echo.Length > 65536) _echo.Remove(0, 32768);
             }
+            Automation.Feed(text);
 
             lock (_buffer.SyncRoot)
             {
@@ -305,6 +318,14 @@ public sealed class TerminalSession : IDisposable
         if (!IsConnected) return;
         IsConnected = false;
         AbortFileTransfer();
+        try
+        {
+            _scriptCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
         _log.Stop();
         var hint = _profile.AutoReconnect ? "，正在自动重连…" : "";
         InjectSystem($"连接已断开：{reason}{hint}", true);
@@ -330,7 +351,7 @@ public sealed class TerminalSession : IDisposable
 
     private bool SendTextCore(string text, bool logTransmit)
     {
-        if (_disposed || !IsConnected || text.Length == 0) return false;
+        if (_disposed || InputLocked || !IsConnected || text.Length == 0) return false;
         try
         {
             var bytes = _encoding.GetBytes(text);
@@ -347,7 +368,7 @@ public sealed class TerminalSession : IDisposable
 
     public void SendBytes(byte[] bytes)
     {
-        if (_disposed || !IsConnected || bytes.Length == 0) return;
+        if (_disposed || InputLocked || !IsConnected || bytes.Length == 0) return;
         try
         {
             _transport.Write(bytes);
@@ -364,8 +385,132 @@ public sealed class TerminalSession : IDisposable
         if (bytes is not null) SendBytes(bytes);
     }
 
+    public bool TryEncodeEscaped(string text, out byte[] bytes) =>
+        ByteSequenceParser.TryParse(text, ByteInputMode.Escape, _encoding, out bytes, out _);
+
+    public bool IsScriptRunning => Volatile.Read(ref _scriptRunning) != 0;
+
+    public async Task RunScriptAsync(IProgress<string>? progress, CancellationToken token)
+    {
+        if (_disposed || !IsConnected)
+        {
+            InjectSystem("脚本：会话未连接", true);
+            return;
+        }
+        if (InputLocked)
+        {
+            InjectSystem("脚本：会话已锁定", true);
+            return;
+        }
+        if (Interlocked.Exchange(ref _scriptRunning, 1) != 0)
+        {
+            InjectSystem("脚本已在运行", true);
+            return;
+        }
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        _scriptCts = cts;
+        try
+        {
+            if (!AutomationScript.TryParse(_profile.Script, out var steps, out var error))
+            {
+                InjectSystem($"脚本解析失败：{error}", true);
+                return;
+            }
+            if (steps.Count == 0)
+            {
+                InjectSystem("脚本为空", true);
+                return;
+            }
+
+            InjectSystem($"脚本开始（{steps.Count} 步）");
+            await AutomationScriptRunner.RunAsync(steps, this, progress, cts.Token)
+                .ConfigureAwait(false);
+            InjectSystem("脚本执行完成");
+        }
+        catch (OperationCanceledException)
+        {
+            InjectSystem("脚本已取消");
+        }
+        catch (Exception ex)
+        {
+            InjectSystem($"脚本失败：{ex.Message}", true);
+        }
+        finally
+        {
+            if (ReferenceEquals(_scriptCts, cts)) _scriptCts = null;
+            cts.Dispose();
+            Interlocked.Exchange(ref _scriptRunning, 0);
+        }
+    }
+
+    public async Task<bool> WaitForOutputAsync(
+        string pattern, bool isRegex, int timeoutMs, CancellationToken token)
+    {
+        if (string.IsNullOrEmpty(pattern)) return true;
+
+        Regex? regex = null;
+        if (isRegex)
+        {
+            try
+            {
+                regex = new Regex(
+                    pattern,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    TimeSpan.FromMilliseconds(200));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        long deadline = Environment.TickCount64 + Math.Clamp(timeoutMs, 100, 600000);
+        while (Environment.TickCount64 < deadline)
+        {
+            token.ThrowIfCancellationRequested();
+            string buffer;
+            lock (_echoLock) buffer = _echo.ToString();
+
+            bool matched;
+            try
+            {
+                matched = regex is not null
+                    ? regex.IsMatch(buffer)
+                    : buffer.Contains(pattern, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                matched = false;
+            }
+            if (matched) return true;
+
+            await Task.Delay(25, token).ConfigureAwait(false);
+        }
+        return false;
+    }
+
+    public void UpdateAutomationRules()
+    {
+        Automation.Update(_profile.ExpectRules, _profile.HighlightRules);
+        PostUpdated();
+    }
+
+    public void CancelScript()
+    {
+        try
+        {
+            _scriptCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     public async Task SendBreakAsync()
     {
+        if (InputLocked) return;
         try
         {
             await _transport.SendBreakAsync(BreakDurationMs).ConfigureAwait(false);
@@ -610,6 +755,14 @@ public sealed class TerminalSession : IDisposable
         if (_disposed || !IsConnected) return;
         IsConnected = false;
         AbortFileTransfer();
+        try
+        {
+            _scriptCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
         _log.Stop();
         try
         {
@@ -630,6 +783,14 @@ public sealed class TerminalSession : IDisposable
         IsConnected = false;
         CancelPaste();
         AbortFileTransfer();
+        try
+        {
+            _scriptCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
         _transport.Reconnected -= OnReconnected;

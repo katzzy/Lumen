@@ -123,6 +123,22 @@ public sealed partial class TerminalView
             {
                 DrawScrollBar(dc, rows, total, maxOffset);
             }
+            if (_inputLocked)
+            {
+                var text = new FormattedText(
+                    "已锁定（只读）",
+                    CultureInfo.CurrentUICulture,
+                    FlowDirection.LeftToRight,
+                    _regular,
+                    Math.Max(11, _fontSize - 2),
+                    Brush(0xFFFFC857),
+                    VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                double width = text.Width + 18;
+                double x = Math.Max(PadX, ActualWidth - width - 14);
+                dc.DrawRoundedRectangle(
+                    Brush(0xDD1A2029), LinePen(0x66F0B429), new Rect(x, PadY + 2, width, text.Height + 8), 6, 6);
+                dc.DrawText(text, new Point(x + 9, PadY + 6));
+            }
             dc.Pop();
         }
     }
@@ -224,6 +240,8 @@ public sealed partial class TerminalView
                 dc.DrawRectangle(Brush(cellBg), null, new Rect(PadX + start * _cellW, y, (c - start) * _cellW, _cellH));
             }
         }
+
+        DrawHighlights(dc, line, y, cols);
 
         // selection
         if (_hasSelection && lineIndex >= selStartLine && lineIndex <= selEndLine)
@@ -338,6 +356,53 @@ public sealed partial class TerminalView
             else
             {
                 dc.DrawRectangle(Brush(palette.Cursor), null, new Rect(cx, y + 1, 2, _cellH - 2));
+            }
+        }
+    }
+
+    private void DrawHighlights(DrawingContext dc, TerminalLine line, double y, int cols)
+    {
+        var patterns = _session?.Automation.Highlights;
+        if (patterns is null || patterns.Count == 0) return;
+
+        var (text, cellAtChar) = line.GetTextWithCells();
+        if (text.Length == 0 || cellAtChar.Length == 0) return;
+
+        foreach (var pattern in patterns)
+        {
+            int index = 0;
+            while (index < text.Length)
+            {
+                System.Text.RegularExpressions.Match match;
+                try
+                {
+                    match = pattern.Regex.Match(text, index);
+                }
+                catch
+                {
+                    break;
+                }
+                if (!match.Success) break;
+
+                int endChar = match.Index + match.Length - 1;
+                if (match.Length > 0 && endChar < cellAtChar.Length)
+                {
+                    int startCell = cellAtChar[match.Index];
+                    int endCell = cellAtChar[endChar];
+                    int width = endCell < line.Cells.Length &&
+                                (line.Cells[endCell].Flags & CellFlags.Wide) != 0 ? 2 : 1;
+                    int length = Math.Max(1, endCell - startCell + width);
+                    startCell = Math.Clamp(startCell, 0, cols);
+                    length = Math.Min(length, cols - startCell);
+                    if (length > 0)
+                    {
+                        dc.DrawRectangle(
+                            Brush(WithAlpha(pattern.Color, 70)), null,
+                            new Rect(PadX + startCell * _cellW, y, length * _cellW, _cellH));
+                    }
+                }
+
+                index = match.Index + Math.Max(1, match.Length);
             }
         }
     }

@@ -272,6 +272,22 @@ Check("deccolm 132", mouseBuffer.PreferredColumns == 132, mouseBuffer.PreferredC
 mouseParser.Parse("\x1b[?3l");
 Check("deccolm 80", mouseBuffer.PreferredColumns == 80, mouseBuffer.PreferredColumns.ToString());
 
+// Session input lock blocks every transmit path.
+var recording = new RecordingTransport();
+var lockProfile = SessionProfile.CreateDefault("lock test");
+lockProfile.AutoLog = false;
+using (var lockSession = new TerminalSession(
+           lockProfile, recording, new AppSettings { AutoLog = false }))
+{
+    lockSession.ConnectAsync().GetAwaiter().GetResult();
+    lockSession.SendText("A");
+    lockSession.InputLocked = true;
+    lockSession.SendText("B");
+    lockSession.SendBytes(new byte[] { 0x43 });
+    Check("session input lock", Encoding.UTF8.GetString(recording.Sent.ToArray()) == "A",
+        Encoding.UTF8.GetString(recording.Sent.ToArray()));
+}
+
 // Named pipe transport
 Check("named pipe normalize",
     NamedPipeTransport.NormalizePipeName(@"\\.\pipe\com_1") == "com_1" &&
@@ -322,6 +338,49 @@ finally
     pipeServer.Dispose();
 }
 
+// Automation rules and script DSL
+Check("expect lines parse",
+    AutomationTextParser.TryParseExpectRules(
+        "Password: => admin\n!+Switch> => enable", out var expectRules, out _)
+    && expectRules.Count == 2
+    && expectRules[0].IsRegex && expectRules[0].Once
+    && !expectRules[1].IsRegex && !expectRules[1].Once,
+    string.Join(",", expectRules.Select(r => $"{r.Pattern}/{r.IsRegex}/{r.Once}")));
+Check("bad expect line rejected",
+    !AutomationTextParser.TryParseExpectRules("missing separator", out _, out _));
+Check("highlight lines parse",
+    AutomationTextParser.TryParseHighlightRules(
+        "ERROR|fail => #F85149\n!Switch# => #22D3EE", out var highlightRules, out _)
+    && highlightRules.Count == 2
+    && highlightRules[0].IsRegex && !highlightRules[1].IsRegex,
+    string.Join(",", highlightRules.Select(r => r.Pattern)));
+Check("bad highlight color rejected",
+    !AutomationTextParser.TryParseHighlightRules("ERROR => red", out _, out _));
+
+var automation = new AutomationRuntime();
+string automationResponse = "";
+automation.SendText = text => automationResponse = text;
+automation.Update(expectRules, highlightRules);
+automation.Feed("User Access Verification\r\nPassword: ");
+Check("expect response", automationResponse == "admin\r", automationResponse);
+automationResponse = "";
+automation.Feed("Password: ");
+Check("expect once", automationResponse.Length == 0, automationResponse);
+Check("highlight runtime", automation.Highlights.Count == 2 &&
+    automation.Highlights[0].Regex.IsMatch("an ERROR occurred") &&
+    automation.Highlights[1].Regex.IsMatch("Switch#"));
+
+Check("script parse",
+    AutomationScript.TryParse(
+        "sendline enable\nwait 50\nexpect Password: 500\nlog ready", out var scriptSteps, out _)
+    && scriptSteps.Count == 4
+    && scriptSteps[0].Kind == ScriptStepKind.SendLine
+    && scriptSteps[1].Kind == ScriptStepKind.Wait
+    && scriptSteps[2].Kind == ScriptStepKind.Expect
+    && scriptSteps[2].TimeoutMs == 500
+    && scriptSteps[3].Kind == ScriptStepKind.Log);
+Check("bad script rejected", !AutomationScript.TryParse("bogus command", out _, out _));
+
 // XAML smoke test: load every overlay view so broken resources or bindings fail here.
 Exception? uiError = null;
 var uiThread = new Thread(() =>
@@ -342,6 +401,7 @@ var uiThread = new Thread(() =>
         _ = new Lumen.Views.SettingsView(new AppSettings());
         _ = new Lumen.Views.SessionEditorView(SessionProfile.CreateDefault(), new List<SerialPortInfo>(), isNew: true);
         _ = new Lumen.Views.NamedPipeConnectView();
+        _ = new Lumen.Views.AutomationView(SessionProfile.CreateDefault());
         using (var demoSpan = new TerminalSession(
                    SessionProfile.CreateDefault("ui transfer", "ui"), new DemoTransport(), new AppSettings()))
         {
@@ -368,6 +428,42 @@ else
 
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+sealed class RecordingTransport : ITerminalTransport
+{
+    public List<byte> Sent { get; } = new();
+    public bool IsOpen { get; private set; }
+    public bool IsReconnecting => false;
+    public string DisplayName => "recording";
+    public long BytesReceived => 0;
+    public long BytesSent => Sent.Count;
+
+#pragma warning disable CS0067
+    public event Action<ReadOnlyMemory<byte>>? DataReceived;
+    public event Action<string>? Disconnected;
+    public event Action? Reconnected;
+#pragma warning restore CS0067
+
+    public Task OpenAsync()
+    {
+        IsOpen = true;
+        return Task.CompletedTask;
+    }
+
+    public void Write(ReadOnlySpan<byte> data)
+    {
+        foreach (byte value in data) Sent.Add(value);
+    }
+
+    public Task SendBreakAsync(int durationMs) => Task.CompletedTask;
+    public void SetDtr(bool enabled) { }
+    public void SetRts(bool enabled) { }
+
+    public void Dispose()
+    {
+        IsOpen = false;
+    }
+}
 
 sealed class LoopChannel : ITransferChannel
 {

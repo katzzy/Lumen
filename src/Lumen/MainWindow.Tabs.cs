@@ -28,6 +28,7 @@ public partial class MainWindow
 {
     private async void StartSession(SessionProfile profile, ITerminalTransport transport)
     {
+        if (ActualWidth < 900 && !_sidebarCollapsed) SetSidebarCollapsed(true);
         var existing = _tabs.FirstOrDefault(t => t.Profile.Id == profile.Id);
         if (existing is not null)
         {
@@ -265,7 +266,15 @@ public partial class MainWindow
         ActiveSubtitle.Text = BuildSubtitle(tab);
         EncodingText.Text = tab.Profile.Encoding.ToUpperInvariant();
         UpdateToolbar();
-        if (tab.HexMode) tab.HexView.Focus();
+        if (CommandBar.Visibility == Visibility.Visible)
+        {
+            CommandInput.Clear();
+            _completionPrefix = "";
+            _completionIndex = 0;
+            if (_active is not null) _active.CommandHistoryIndex = _active.CommandHistory.Count;
+            CommandInput.Focus();
+        }
+        else if (tab.HexMode) tab.HexView.Focus();
         else tab.View.Focus();
         HideFind();
         if (tab.Session.IsConnected)
@@ -281,6 +290,7 @@ public partial class MainWindow
         bool active = ReferenceEquals(_active, tab);
         tab.Header.Background = active ? Res("Brush.SurfaceAlt") : Brushes.Transparent;
         tab.Header.BorderBrush = active ? Res("Brush.Border") : Brushes.Transparent;
+        tab.TitleText.Text = tab.Locked ? $"[锁定] {tab.Profile.Name}" : tab.Profile.Name;
         tab.TitleText.Foreground = active ? Res("Brush.Text") : Res("Brush.TextSecondary");
         tab.TitleText.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
         tab.CloseButton.Opacity = active ? 0.9 : 0.45;
@@ -336,23 +346,23 @@ public partial class MainWindow
         ActiveDot.Background = connected
             ? Res("Brush.Green")
             : has ? Res("Brush.Amber") : Res("Brush.TextMuted");
-        SendBytesButton.IsEnabled = connected;
-        TransferButton.IsEnabled = connected && session?.IsTransferActive != true;
+        SendBytesButton.IsEnabled = connected && _active?.Locked != true;
+        TransferButton.IsEnabled = connected && _active?.Locked != true &&
+                                   session?.IsTransferActive != true;
         ActiveTitle.Text = _active?.Profile.Name ?? "未连接";
         ActiveSubtitle.Text = _active is null
             ? "选择左侧会话，或使用快速连接"
             : BuildSubtitle(_active);
         ActiveSubtitle.ToolTip = ActiveSubtitle.Text;
+        ActiveTitle.ToolTip = ActiveSubtitle.Text;
 
-        BreakButton.IsEnabled = connected && session?.Transport is not NamedPipeTransport;
+        BreakButton.IsEnabled = connected && _active?.Locked != true &&
+                                session?.Transport is not NamedPipeTransport;
         ReconnectButton.IsEnabled = has && _active?.Profile.Id != "demo-session";
         HexToggle.IsEnabled = has;
-        ColumnsButton.IsEnabled = has;
         LogButton.IsEnabled = has;
-        LogFolderButton.IsEnabled = has;
-        QuickCommandButton.IsEnabled = has;
-        ClearButton.IsEnabled = has;
-        FindButton.IsEnabled = has;
+        LogFolderMenuItem.IsEnabled = has;
+        QuickCommandButton.IsEnabled = has && _active?.Locked != true;
 
         var serial = session?.Transport as SerialConnection;
         DtrToggle.IsEnabled = serial is not null;
@@ -373,14 +383,15 @@ public partial class MainWindow
         _suppressToggle = true;
         HexToggle.IsChecked = _active?.HexMode == true;
         _suppressToggle = false;
-        ColumnsButton.Content = _active?.Profile.TerminalColumns switch
-        {
-            80 => "80",
-            132 => "132",
-            _ => "列宽"
-        };
         EncodingText.Text = _active?.Profile.Encoding.ToUpperInvariant() ?? "UTF-8";
         Title = _active is null ? "Lumen Terminal" : $"Lumen Terminal — {_active.Profile.Name}";
+        var modes = new List<string>();
+        if (_broadcast) modes.Add($"群发 {BroadcastTargets().Count()}");
+        if (_active?.Locked == true) modes.Add("锁定");
+        ModeText.Text = string.Join(" · ", modes);
+        ModeText.Visibility = modes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateMoreMenuChecks();
+        UpdateBroadcastRoutes();
     }
 
     private void UpdateEmptyState()

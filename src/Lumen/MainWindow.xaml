@@ -5,8 +5,8 @@
         Title="Lumen Terminal"
         Width="1320"
         Height="820"
-        MinWidth="980"
-        MinHeight="620"
+        MinWidth="620"
+        MinHeight="460"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -28,6 +28,22 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
+        <Style x:Key="MenuSeparatorItem" TargetType="MenuItem">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsEnabled" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border Height="9" Background="Transparent">
+                            <Border Height="1"
+                                    Margin="12,4"
+                                    VerticalAlignment="Center"
+                                    Background="{StaticResource Brush.Border}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <DataTemplate x:Key="PortItemTemplate">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -106,6 +122,15 @@
                             FontSize="11"
                             ToolTip="新建会话" AutomationProperties.Name="新建会话"
                             Click="NewSession_Click" />
+                    <Button x:Name="SidebarToggleButton"
+                            Style="{StaticResource BtnIcon}"
+                            Content="&#xE700;"
+                            Width="26"
+                            Height="26"
+                            FontSize="11"
+                            Margin="2,0,0,0"
+                            ToolTip="显示/隐藏会话栏" AutomationProperties.Name="显示或隐藏会话栏"
+                            Click="SidebarToggle_Click" />
                 </StackPanel>
 
                 <ScrollViewer x:Name="TabScroll"
@@ -139,13 +164,13 @@
             <!-- Body -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="256" />
-                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition x:Name="SidebarColumn" Width="256" />
+                    <ColumnDefinition x:Name="SidebarDividerColumn" Width="1" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
                 <!-- Sidebar -->
-                <Border Grid.Column="0" Background="#0B0E13">
+                <Border x:Name="Sidebar" Grid.Column="0" Background="#0B0E13">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -307,7 +332,11 @@
                                 <ContextMenu>
                                     <MenuItem Header="连接" Click="SessionContext_Connect" />
                                     <MenuItem Header="编辑" Click="SessionContext_Edit" />
+                                    <MenuItem Header="自动化与高亮…" Click="SessionContext_Automation" />
                                     <MenuItem Header="复制会话" Click="SessionContext_Duplicate" />
+                                    <Separator />
+                                    <MenuItem Header="导入会话…" Click="ImportSessions_Click" />
+                                    <MenuItem Header="导出会话…" Click="ExportSessions_Click" />
                                     <Separator />
                                     <MenuItem Header="删除" Foreground="{StaticResource Brush.Red}" Click="SessionContext_Delete" />
                                 </ContextMenu>
@@ -332,7 +361,7 @@
                                         <TextBlock Text="设置" Margin="8,0,0,0" FontSize="12" />
                                     </StackPanel>
                                 </Button>
-                                <TextBlock Text="Lumen 1.3"
+                                <TextBlock Text="Lumen 1.4"
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            FontSize="10"
@@ -342,7 +371,7 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Column="1" Background="{StaticResource Brush.BorderSoft}" />
+                <Border x:Name="SidebarDivider" Grid.Column="1" Background="{StaticResource Brush.BorderSoft}" />
 
                 <!-- Workspace -->
                 <Grid Grid.Column="2">
@@ -390,7 +419,7 @@
                                 <TextBlock x:Name="ActiveSubtitle"
                                            Grid.Column="3"
                                            Text="选择左侧会话，或使用快速连接"
-                                           FontSize="12"
+                                           FontSize="11"
                                            Foreground="{StaticResource Brush.TextMuted}"
                                            TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center" />
@@ -409,6 +438,7 @@
                                           Width="92"
                                           Height="26"
                                           Margin="2,0,0,0"
+                                          FontSize="12"
                                           ToolTip="当前连接波特率，选择后立即生效"
                                           SelectionChanged="BaudCombo_SelectionChanged" />
                                 <Button x:Name="BreakButton"
@@ -442,7 +472,7 @@
                                               Unchecked="RtsToggle_Changed" />
                                 <TextBlock x:Name="DsrText"
                                            Text="DSR —"
-                                           FontSize="10"
+                                           FontSize="11"
                                            FontFamily="{StaticResource Font.Mono}"
                                            Foreground="{StaticResource Brush.TextMuted}"
                                            Margin="8,0,0,0"
@@ -454,11 +484,6 @@
                                         Style="{StaticResource BtnTool}"
                                         ToolTip="开始 / 停止记录本次会话"
                                         Click="Log_Click" />
-                                <Button x:Name="LogFolderButton"
-                                        Content="日志目录"
-                                        Style="{StaticResource BtnTool}"
-                                        ToolTip="打开日志保存目录"
-                                        Click="OpenLogFolder_Click" />
                                 <Button x:Name="QuickCommandButton"
                                         Content="快捷命令"
                                         Style="{StaticResource BtnTool}"
@@ -480,29 +505,35 @@
                                               ToolTip="切换十六进制接收视图"
                                               Margin="2,0,0,0"
                                               Click="HexToggle_Click" />
-                                <Button x:Name="ColumnsButton"
-                                        Content="列宽"
-                                        Style="{StaticResource BtnTool}"
-                                        ToolTip="终端列宽：自适应 / 80 / 132 列"
-                                        Click="Columns_Click">
+                                <Button x:Name="MoreButton"
+                                        Style="{StaticResource BtnIcon}"
+                                        Content="&#xE712;"
+                                        Width="26"
+                                        Height="26"
+                                        FontSize="12"
+                                        Margin="2,0,0,0"
+                                        ToolTip="更多功能" AutomationProperties.Name="更多功能"
+                                        Click="More_Click">
                                     <Button.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="自适应窗口" Tag="0" Click="ColumnsMenuItem_Click" />
-                                            <MenuItem Header="80 列" Tag="80" Click="ColumnsMenuItem_Click" />
-                                            <MenuItem Header="132 列" Tag="132" Click="ColumnsMenuItem_Click" />
+                                        <ContextMenu x:Name="MoreMenu" Opened="MoreMenu_Opened">
+                                            <MenuItem Header="自动化与高亮…" InputGestureText="Ctrl+Shift+E" Click="Automation_Click" />
+                                            <MenuItem Header="运行会话脚本" Click="RunScript_Click" />
+                                            <MenuItem Style="{StaticResource MenuSeparatorItem}" />
+                                            <MenuItem x:Name="BroadcastMenuItem" Header="多会话群发" IsCheckable="True" Click="BroadcastMenuItem_Click" />
+                                            <MenuItem x:Name="LockMenuItem" Header="锁定当前会话" IsCheckable="True" Click="LockMenuItem_Click" />
+                                            <MenuItem x:Name="CommandBarMenuItem" Header="命令栏" IsCheckable="True" InputGestureText="Ctrl+Shift+K" Click="CommandBarMenuItem_Click" />
+                                            <MenuItem x:Name="QuickCommandMenuItem" Header="快捷命令…" Click="QuickCommands_Click" />
+                                            <MenuItem x:Name="ColumnsMenuItem" Header="终端列宽" Click="Columns_Click" />
+                                            <MenuItem x:Name="ClearMenuItem" Header="清屏" Click="Clear_Click" />
+                                            <MenuItem x:Name="FindMenuItem" Header="查找" InputGestureText="Ctrl+F" Click="Find_Click" />
+                                            <MenuItem Header="打印…" InputGestureText="Ctrl+P" Click="Print_Click" />
+                                            <MenuItem x:Name="LogFolderMenuItem" Header="打开日志目录" Click="OpenLogFolder_Click" />
+                                            <MenuItem Style="{StaticResource MenuSeparatorItem}" />
+                                            <MenuItem Header="导入会话…" Click="ImportSessions_Click" />
+                                            <MenuItem Header="导出会话…" Click="ExportSessions_Click" />
                                         </ContextMenu>
                                     </Button.ContextMenu>
                                 </Button>
-                                <Button x:Name="ClearButton"
-                                        Content="清屏"
-                                        Style="{StaticResource BtnTool}"
-                                        ToolTip="仅清除本机显示，不发送到设备"
-                                        Click="Clear_Click" />
-                                <Button x:Name="FindButton"
-                                        Content="查找"
-                                        Style="{StaticResource BtnTool}"
-                                        ToolTip="在当前会话中查找（Ctrl+F）"
-                                        Click="Find_Click" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -644,6 +675,51 @@
                                         Click="FindClose_Click" />
                             </StackPanel>
                         </Border>
+
+                        <!-- Command bar -->
+                        <Border x:Name="CommandBar"
+                                Visibility="Collapsed"
+                                VerticalAlignment="Bottom"
+                                Margin="14,0,14,12"
+                                Padding="10,7"
+                                Background="{StaticResource Brush.SurfaceAlt}"
+                                BorderBrush="{StaticResource Brush.Border}"
+                                BorderThickness="1"
+                                CornerRadius="9"
+                                Panel.ZIndex="10">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.35" Color="Black" />
+                            </Border.Effect>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="$"
+                                           FontFamily="{StaticResource Font.Mono}"
+                                           FontSize="14"
+                                           Foreground="{StaticResource Brush.Accent}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0" />
+                                <TextBox x:Name="CommandInput"
+                                         Grid.Column="1"
+                                         Height="28"
+                                         Padding="8,4"
+                                         VerticalContentAlignment="Center"
+                                         FontFamily="{StaticResource Font.Mono}"
+                                         FontSize="12"
+                                         ToolTip="Enter 发送，↑/↓ 历史，Tab 补全，Esc 关闭"
+                                         KeyDown="CommandInput_KeyDown" />
+                                <Button Grid.Column="2"
+                                        Content="发送"
+                                        Style="{StaticResource BtnSecondary}"
+                                        Height="28"
+                                        Padding="14,0"
+                                        Margin="8,0,0,0"
+                                        Click="CommandSend_Click" />
+                            </Grid>
+                        </Border>
                     </Grid>
                 </Grid>
             </Grid>
@@ -681,6 +757,14 @@
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
+                        <TextBlock x:Name="ModeText"
+                                   Text=""
+                                   Visibility="Collapsed"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource Brush.Amber}"
+                                   Margin="0,0,12,0"
+                                   VerticalAlignment="Center" />
                         <TextBlock x:Name="LogText"
                                    Text="○ 未记录"
                                    FontSize="11"

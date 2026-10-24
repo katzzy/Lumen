@@ -48,6 +48,7 @@ public sealed partial class TerminalView : FrameworkElement
     private int _matchIndex = -1;
     private int _searchVersion;
     private int _fixedColumns;
+    private bool _inputLocked;
     private bool _mousePressed;
     private int _mouseButton = -1;
     private long _lastMouseReportAt;
@@ -148,6 +149,24 @@ public sealed partial class TerminalView : FrameworkElement
 
     protected override AutomationPeer OnCreateAutomationPeer() => new TerminalAutomationPeer(this);
 
+    /// <summary>Plain-text transcript used by the print command.</summary>
+    public string GetPrintableText()
+    {
+        if (_session is null) return "";
+        var buffer = _session.Buffer;
+        lock (buffer.SyncRoot)
+        {
+            int total = buffer.TotalDisplayLines;
+            var sb = new StringBuilder(total * 40);
+            for (int i = 0; i < total; i++)
+            {
+                var line = buffer.GetDisplayLine(i);
+                sb.Append(line?.GetText().TrimEnd() ?? "").Append(Environment.NewLine);
+            }
+            return sb.ToString();
+        }
+    }
+
     /// <summary>
     /// Text exposed to UI Automation / screen readers. Limited to the most recent
     /// 2000 display lines to avoid walking an unbounded scrollback on every query.
@@ -208,6 +227,23 @@ public sealed partial class TerminalView : FrameworkElement
             RequestRender();
         }
     }
+
+    /// <summary>When locked the terminal remains readable and copyable but sends no input.</summary>
+    public bool InputLocked
+    {
+        get => _inputLocked;
+        set
+        {
+            if (_inputLocked == value) return;
+            _inputLocked = value;
+            if (value) _selecting = false;
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Set while multi-session broadcast is enabled.</summary>
+    public Action<string>? BroadcastText { get; set; }
+    public Action<byte[]>? BroadcastBytes { get; set; }
 
     public bool HasSelection => _hasSelection && !SelectionIsEmpty();
 
@@ -349,13 +385,13 @@ public sealed partial class TerminalView : FrameworkElement
 
         if (e.Key == Key.F5 && !shift)
         {
-            _ = _session.SendBreakAsync();
+            if (!_inputLocked) _ = _session.SendBreakAsync();
             e.Handled = true;
             return;
         }
         if (e.Key == Key.Cancel || (e.Key == Key.Pause && ctrl))
         {
-            _ = _session.SendBreakAsync();
+            if (!_inputLocked) _ = _session.SendBreakAsync();
             e.Handled = true;
             return;
         }
@@ -368,7 +404,7 @@ public sealed partial class TerminalView : FrameworkElement
         }
         if (ctrl && shift && e.Key == Key.V)
         {
-            RequestPaste();
+            if (!_inputLocked) RequestPaste();
             e.Handled = true;
             return;
         }
@@ -380,7 +416,7 @@ public sealed partial class TerminalView : FrameworkElement
         }
         if (shift && e.Key == Key.Insert)
         {
-            RequestPaste();
+            if (!_inputLocked) RequestPaste();
             e.Handled = true;
             return;
         }
@@ -392,13 +428,13 @@ public sealed partial class TerminalView : FrameworkElement
                 e.Handled = true;
                 return;
             }
-            _session.SendBytes(new byte[] { 0x03 });
+            if (!_inputLocked) SendInputBytes(new byte[] { 0x03 });
             e.Handled = true;
             return;
         }
         if (ctrl && e.Key == Key.V)
         {
-            RequestPaste();
+            if (!_inputLocked) RequestPaste();
             e.Handled = true;
             return;
         }
@@ -470,12 +506,30 @@ public sealed partial class TerminalView : FrameworkElement
             return;
         }
 
+        if (_inputLocked)
+        {
+            e.Handled = true;
+            return;
+        }
+
         var bytes = TerminalKeyEncoder.Encode(e.Key, Keyboard.Modifiers, _session.Buffer);
         if (bytes is not null)
         {
-            _session.SendBytes(bytes);
+            SendInputBytes(bytes);
             e.Handled = true;
         }
+    }
+
+    private void SendInputBytes(byte[] bytes)
+    {
+        if (BroadcastBytes is not null) BroadcastBytes(bytes);
+        else _session?.SendBytes(bytes);
+    }
+
+    private void SendInputText(string text)
+    {
+        if (BroadcastText is not null) BroadcastText(text);
+        else _session?.SendText(text);
     }
 
     private void OnImeComposition(object sender, TextCompositionEventArgs e) =>
@@ -510,12 +564,18 @@ public sealed partial class TerminalView : FrameworkElement
     {
         base.OnTextInput(e);
         if (_session is null || string.IsNullOrEmpty(e.Text)) return;
-        _session.SendText(e.Text);
+        if (_inputLocked)
+        {
+            e.Handled = true;
+            return;
+        }
+        SendInputText(e.Text);
         e.Handled = true;
     }
 
     private void RequestPaste()
     {
+        if (_inputLocked) return;
         string text;
         try
         {
@@ -553,6 +613,7 @@ public sealed partial class TerminalView : FrameworkElement
     {
         if (ContextMenu is null) return;
         if (ContextMenu.Items[0] is MenuItem copy) copy.IsEnabled = HasSelection;
+        if (ContextMenu.Items[1] is MenuItem paste) paste.IsEnabled = !_inputLocked;
         if (ContextMenu.Items[7] is MenuItem bottom) bottom.IsEnabled = _scrollOffset > 0;
         if (ContextMenu.Items[4] is MenuItem find) find.IsEnabled = _session is not null;
     }

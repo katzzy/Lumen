@@ -43,6 +43,11 @@ public partial class MainWindow : Window
     private IntPtr _hwnd;
     private bool _suppressToggle;
     private bool _suppressBaud;
+    private bool _broadcast;
+    private bool _sidebarCollapsed;
+    private bool _lastNarrowLayout;
+    private string _completionPrefix = "";
+    private int _completionIndex;
     private CancellationTokenSource? _findSearchCts;
 
     public MainWindow(AppSettings settings, SessionStore store, string[] args)
@@ -74,6 +79,7 @@ public partial class MainWindow : Window
         SourceInitialized += MainWindow_SourceInitialized;
         Loaded += MainWindow_Loaded;
         StateChanged += MainWindow_StateChanged;
+        SizeChanged += (_, _) => UpdateResponsiveLayout();
         Closing += MainWindow_Closing;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
 
@@ -81,11 +87,13 @@ public partial class MainWindow : Window
         UpdateSessionCount();
         UpdateEmptyState();
         UpdateToolbar();
+        UpdateToolbarDensity();
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _pollTimer.Start();
+        UpdateResponsiveLayout();
         HandleStartupArgs();
     }
 
@@ -395,6 +403,36 @@ public partial class MainWindow : Window
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
+        if (ctrl && shift && e.Key == Key.E)
+        {
+            Automation_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && shift && e.Key == Key.K)
+        {
+            SetCommandBarVisible(CommandBar.Visibility != Visibility.Visible);
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && shift && e.Key == Key.L && _active is not null)
+        {
+            ToggleSessionLock(_active);
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && shift && e.Key == Key.B)
+        {
+            SetBroadcast(!_broadcast);
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && e.Key == Key.P)
+        {
+            Print_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
         if (ctrl && shift && e.Key == Key.T)
         {
             NewSession_Click(sender, e);
@@ -581,6 +619,12 @@ public partial class MainWindow : Window
     {
         var tab = _active;
         if (tab is null || !tab.Session.IsConnected) return;
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法发送命令", true);
+            HideOverlay();
+            return;
+        }
 
         if (command.Confirm)
         {
@@ -589,9 +633,10 @@ public partial class MainWindow : Window
         }
 
         if (!tab.Session.IsConnected) return;
-        tab.Session.SendText(command.Command + "\r");
+        if (_broadcast) BroadcastText(command.Command + "\r");
+        else tab.Session.SendText(command.Command + "\r");
         HideOverlay();
-        SetStatus($"已发送：{command.Name}");
+        SetStatus(_broadcast ? $"已群发：{command.Name}" : $"已发送：{command.Name}");
     }
 
     [DllImport("dwmapi.dll")]
@@ -659,5 +704,9 @@ public partial class MainWindow : Window
         public Button CloseButton { get; set; } = null!;
         public bool Connecting { get; set; }
         public bool AutoVendor { get; set; }
+        public bool Locked { get; set; }
+        public List<string> CommandHistory { get; } = new();
+        public int CommandHistoryIndex = -1;
+        public string CommandDraft = "";
     }
 }

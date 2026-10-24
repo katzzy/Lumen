@@ -185,7 +185,7 @@ public sealed partial class TerminalView
 
     private bool ShouldReportMouse()
     {
-        if (_session is null || _scrollOffset > 0) return false;
+        if (_session is null || _scrollOffset > 0 || _inputLocked) return false;
         if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) return false;
         return _session.Buffer.MouseTracking != MouseTrackingMode.None;
     }

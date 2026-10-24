@@ -40,7 +40,7 @@ public partial class SessionEditorView : UserControl
         FlowBox.ItemsSource = new[] { "无", "RTS / CTS 硬件流控", "XON / XOFF 软件流控" };
         EncodingBox.ItemsSource = new[] { "UTF-8", "GBK", "ASCII" };
         TransportBox.ItemsSource = new[] { "串口", "命名管道" };
-        ColumnsBox.ItemsSource = new[] { "自适应窗口", "80 列", "132 列" };
+        ColumnsBox.ItemsSource = new[] { "自适应", "80 列", "132 列" };
 
         NameBox.Text = profile.Name;
         GroupBox.Text = profile.Group;

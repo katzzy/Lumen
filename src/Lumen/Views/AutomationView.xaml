@@ -1,0 +1,129 @@
+<UserControl x:Class="Lumen.Views.AutomationView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="700"
+             MaxHeight="760"
+             Focusable="True"
+             KeyDown="Root_KeyDown">
+    <Border Background="{StaticResource Brush.Surface}"
+            BorderBrush="{StaticResource Brush.Border}"
+            BorderThickness="1"
+            CornerRadius="14">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="40" ShadowDepth="14" Opacity="0.45" Color="Black" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="64" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="22,0,12,0">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="自动化与高亮"
+                               FontFamily="{StaticResource Font.Display}"
+                               FontSize="17"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="脚本、expect 自动响应、关键字高亮"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Button HorizontalAlignment="Right"
+                        Style="{StaticResource BtnIcon}"
+                        Content="&#xE711;"
+                        Width="30"
+                        Height="30"
+                        FontSize="10"
+                        ToolTip="关闭" AutomationProperties.Name="关闭自动化"
+                        Click="Cancel_Click" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,0,22,0">
+                <StackPanel Margin="0,2,0,18">
+                    <Grid Margin="0,4,0,8">
+                        <TextBlock Text="脚本" Style="{StaticResource Text.Section}" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ScriptAutoRunCheck"
+                                  Content="连接后自动运行"
+                                  HorizontalAlignment="Right"
+                                  Foreground="{StaticResource Brush.TextSecondary}" />
+                    </Grid>
+                    <TextBox x:Name="ScriptBox"
+                             Height="138"
+                             AcceptsReturn="True"
+                             TextWrapping="NoWrap"
+                             VerticalContentAlignment="Top"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="{StaticResource Font.Mono}"
+                             FontSize="12" />
+                    <TextBlock x:Name="ScriptHelpText"
+                               FontSize="11"
+                               FontFamily="{StaticResource Font.Mono}"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               TextWrapping="Wrap"
+                               Margin="2,6,0,14" />
+
+                    <TextBlock Text="Expect 自动响应" Style="{StaticResource Text.Section}" Margin="0,4,0,4" />
+                    <TextBlock Text="每行一条：正则 => 发送内容；前缀 ! 为字面量，+ 为可重复触发。示例：Password: => admin"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               TextWrapping="Wrap"
+                               Margin="2,0,0,6" />
+                    <TextBox x:Name="ExpectBox"
+                             Height="118"
+                             AcceptsReturn="True"
+                             TextWrapping="NoWrap"
+                             VerticalContentAlignment="Top"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="{StaticResource Font.Mono}"
+                             FontSize="12"
+                             Margin="0,0,0,14" />
+
+                    <TextBlock Text="关键字高亮" Style="{StaticResource Text.Section}" Margin="0,4,0,4" />
+                    <TextBlock Text="每行一条：模式 => #RRGGBB；前缀 ! 为字面量。示例：ERROR|fail => #F85149"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               TextWrapping="Wrap"
+                               Margin="2,0,0,6" />
+                    <TextBox x:Name="HighlightBox"
+                             Height="108"
+                             AcceptsReturn="True"
+                             TextWrapping="NoWrap"
+                             VerticalContentAlignment="Top"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="{StaticResource Font.Mono}"
+                             FontSize="12" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2"
+                    BorderBrush="{StaticResource Brush.BorderSoft}"
+                    BorderThickness="0,1,0,0"
+                    Padding="22,12">
+                <Grid>
+                    <TextBlock x:Name="ErrorText"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{StaticResource Brush.Red}"
+                               MaxWidth="380"
+                               TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="取消"
+                                Style="{StaticResource BtnSecondary}"
+                                Padding="18,7"
+                                Click="Cancel_Click" />
+                        <Button Content="保存自动化"
+                                Style="{StaticResource BtnPrimary}"
+                                Padding="20,7"
+                                Margin="8,0,0,0"
+                                Click="Save_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

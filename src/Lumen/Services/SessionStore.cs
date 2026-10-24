@@ -82,5 +82,29 @@ public sealed class SessionStore
         Save();
     }
 
+    public void Export(string path)
+    {
+        var json = JsonSerializer.Serialize(Sessions, JsonOptions);
+        File.WriteAllText(path, json, new UTF8Encoding(false));
+    }
+
+    public List<SessionProfile> Import(string path)
+    {
+        var json = File.ReadAllText(path, Encoding.UTF8);
+        var imported = JsonSerializer.Deserialize<List<SessionProfile>>(json, JsonOptions) ?? new();
+        foreach (var profile in imported)
+        {
+            if (string.IsNullOrWhiteSpace(profile.Id) ||
+                Sessions.Any(existing => existing.Id == profile.Id))
+            {
+                profile.Id = Guid.NewGuid().ToString("N");
+            }
+            if (string.IsNullOrWhiteSpace(profile.Name)) profile.Name = "导入的会话";
+            Sessions.Add(profile);
+        }
+        if (imported.Count > 0) Save();
+        return imported;
+    }
+
     private static List<SessionProfile> CreateSeedSessions() => new();
 }
