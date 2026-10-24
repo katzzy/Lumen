@@ -361,7 +361,7 @@
                                         <TextBlock Text="设置" Margin="8,0,0,0" FontSize="12" />
                                     </StackPanel>
                                 </Button>
-                                <TextBlock Text="Lumen 1.4"
+                                <TextBlock Text="Lumen 1.4.1"
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            FontSize="10"
@@ -517,7 +517,7 @@
                                     <Button.ContextMenu>
                                         <ContextMenu x:Name="MoreMenu" Opened="MoreMenu_Opened">
                                             <MenuItem Header="自动化与高亮…" InputGestureText="Ctrl+Shift+E" Click="Automation_Click" />
-                                            <MenuItem Header="运行会话脚本" Click="RunScript_Click" />
+                                            <MenuItem x:Name="RunScriptMenuItem" Header="运行会话脚本" Click="RunScript_Click" />
                                             <MenuItem Style="{StaticResource MenuSeparatorItem}" />
                                             <MenuItem x:Name="BroadcastMenuItem" Header="多会话群发" IsCheckable="True" Click="BroadcastMenuItem_Click" />
                                             <MenuItem x:Name="LockMenuItem" Header="锁定当前会话" IsCheckable="True" Click="LockMenuItem_Click" />

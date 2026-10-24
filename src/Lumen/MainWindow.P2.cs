@@ -30,9 +30,16 @@ public partial class MainWindow
     {
         if (BroadcastMenuItem is null) return;
         BroadcastMenuItem.IsChecked = _broadcast;
-        BroadcastMenuItem.IsEnabled = _tabs.Any(t => t.Session.IsConnected);
+        // Must stay clickable while broadcast is on, even if every target has
+        // gone away, otherwise the only visible way to turn it off is disabled.
+        BroadcastMenuItem.IsEnabled = _broadcast || BroadcastTargets().Any();
         LockMenuItem.IsChecked = _active?.Locked == true;
         LockMenuItem.IsEnabled = _active is not null;
+        bool scriptRunning = _active?.Session.IsScriptRunning == true;
+        RunScriptMenuItem.Header = scriptRunning ? "停止会话脚本" : "运行会话脚本";
+        RunScriptMenuItem.IsEnabled = _active is not null &&
+                                      (scriptRunning ||
+                                       (_active.Session.IsConnected && !_active.Locked));
         CommandBarMenuItem.IsChecked = CommandBar.Visibility == Visibility.Visible;
         CommandBarMenuItem.IsEnabled = _active is not null;
         bool has = _active is not null;
@@ -49,10 +56,11 @@ public partial class MainWindow
     }
 
     private void SidebarToggle_Click(object sender, RoutedEventArgs e) =>
-        SetSidebarCollapsed(!_sidebarCollapsed);
+        SetSidebarCollapsed(!_sidebarCollapsed, userInitiated: true);
 
-    private void SetSidebarCollapsed(bool collapsed)
+    private void SetSidebarCollapsed(bool collapsed, bool userInitiated = false)
     {
+        if (userInitiated) _sidebarManualState = collapsed;
         _sidebarCollapsed = collapsed;
         SidebarColumn.Width = collapsed ? new GridLength(0) : new GridLength(256);
         SidebarDividerColumn.Width = collapsed ? new GridLength(0) : new GridLength(1);
@@ -67,11 +75,11 @@ public partial class MainWindow
         if (!IsLoaded || ActualWidth <= 0) return;
 
         bool narrow = ActualWidth < 900;
-        if (narrow != _lastNarrowLayout)
+        if (_sidebarManualState is null && narrow != _lastNarrowLayout)
         {
-            _lastNarrowLayout = narrow;
             SetSidebarCollapsed(narrow);
         }
+        _lastNarrowLayout = narrow;
 
         UpdateToolbarDensity();
         ThroughputText.Visibility = ActualWidth >= 760 ? Visibility.Visible : Visibility.Collapsed;
@@ -136,7 +144,14 @@ public partial class MainWindow
 
             _sessionsView.Refresh();
             HideOverlay();
-            SetStatus($"自动化已保存：{profile.Name}");
+            if (tab?.Session.Automation.LastError is { Length: > 0 } automationError)
+            {
+                SetStatus($"自动化已保存，但有规则未生效：{automationError}", true);
+            }
+            else
+            {
+                SetStatus($"自动化已保存：{profile.Name}");
+            }
         };
         view.Cancelled += HideOverlay;
         ShowOverlay(view);
@@ -160,9 +175,25 @@ public partial class MainWindow
     {
         var tab = _active;
         if (tab is null) return;
+        if (tab.Session.IsScriptRunning)
+        {
+            tab.Session.CancelScript();
+            SetStatus("正在停止脚本…");
+            return;
+        }
         if (!tab.Session.IsConnected)
         {
             SetStatus("会话未连接，无法运行脚本", true);
+            return;
+        }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("文件传输进行中，无法运行脚本", true);
+            return;
+        }
+        if (tab.Locked)
+        {
+            SetStatus("会话已锁定，无法运行脚本", true);
             return;
         }
         if (string.IsNullOrWhiteSpace(tab.Profile.Script))
@@ -183,7 +214,7 @@ public partial class MainWindow
         {
             _broadcast = false;
             UpdateToolbar();
-            SetStatus("没有已连接会话，无法开启群发", true);
+            SetStatus("没有可群发的已连接会话，无法开启群发", true);
             return;
         }
 
@@ -194,7 +225,7 @@ public partial class MainWindow
     }
 
     private IEnumerable<TabEntry> BroadcastTargets() =>
-        _tabs.Where(t => t.Session.IsConnected && !t.Locked);
+        _tabs.Where(t => t.Session.IsConnected && !t.Locked && !t.Session.IsTransferActive);
 
     private void UpdateBroadcastRoutes()
     {
@@ -243,6 +274,9 @@ public partial class MainWindow
         {
             tab.Session.CancelScript();
             tab.Session.AbortFileTransfer();
+            tab.Session.CancelPaste();
+            // Drop pending expect input without re-arming once-only rules.
+            tab.Session.Automation.ClearBuffer();
         }
         UpdateTabVisual(tab);
         UpdateToolbar();
@@ -265,13 +299,32 @@ public partial class MainWindow
         if (visible)
         {
             CommandInput.Clear();
+            ResetCommandNavigation();
             CommandInput.Focus();
             SetStatus("命令栏：Enter 发送，↑/↓ 历史，Tab 补全，Esc 关闭");
         }
         else
         {
             CommandInput.Clear();
-            _active?.View.Focus();
+            ResetCommandNavigation();
+            if (_active is not null)
+            {
+                if (_active.HexMode) _active.HexView.Focus();
+                else _active.View.Focus();
+            }
+        }
+    }
+
+    private void ResetCommandNavigation()
+    {
+        _completionPrefix = "";
+        _completionIndex = 0;
+        _completionActive = false;
+        _completionLast = "";
+        if (_active is not null)
+        {
+            _active.CommandHistoryIndex = _active.CommandHistory.Count;
+            _active.CommandDraft = "";
         }
     }
 
@@ -313,6 +366,21 @@ public partial class MainWindow
             SetStatus("会话已锁定，无法发送命令", true);
             return;
         }
+        if (!tab.Session.IsConnected)
+        {
+            SetStatus("会话未连接，无法发送命令", true);
+            return;
+        }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("文件传输进行中，无法发送命令", true);
+            return;
+        }
+        if (_broadcast && !BroadcastTargets().Any())
+        {
+            SetStatus("没有可群发的已连接会话", true);
+            return;
+        }
 
         string text = CommandInput.Text;
         if (text.Length == 0) return;
@@ -326,6 +394,8 @@ public partial class MainWindow
         tab.CommandDraft = "";
         _completionPrefix = "";
         _completionIndex = 0;
+        _completionActive = false;
+        _completionLast = "";
 
         if (_broadcast) BroadcastText(text + "\r");
         else tab.Session.SendText(text + "\r");
@@ -339,6 +409,8 @@ public partial class MainWindow
     {
         var tab = _active;
         if (tab is null || tab.CommandHistory.Count == 0) return;
+        _completionActive = false;
+        _completionLast = "";
 
         if (tab.CommandHistoryIndex < 0 || tab.CommandHistoryIndex > tab.CommandHistory.Count)
         {
@@ -370,26 +442,38 @@ public partial class MainWindow
         if (tab is null) return;
 
         string current = CommandInput.Text;
-        if (_completionPrefix.Length == 0 || !current.StartsWith(_completionPrefix, StringComparison.Ordinal))
+        bool cycling = _completionActive &&
+                       current.StartsWith(_completionPrefix, StringComparison.Ordinal) &&
+                       (current == _completionLast || _completionIndex == 0);
+        if (!cycling)
         {
             _completionPrefix = current;
             _completionIndex = 0;
+            _completionActive = true;
         }
 
         var candidates = tab.CommandHistory
+            .AsEnumerable()
+            .Reverse()
             .Concat(tab.Profile.QuickCommands.Select(q => q.Command))
             .Where(value => value.Length > 0 &&
                             value.StartsWith(_completionPrefix, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (candidates.Count == 0) return;
+        if (candidates.Count == 0)
+        {
+            _completionActive = false;
+            return;
+        }
 
-        CommandInput.Text = candidates[_completionIndex % candidates.Count];
-        CommandInput.CaretIndex = CommandInput.Text.Length;
+        string completed = candidates[_completionIndex % candidates.Count];
+        CommandInput.Text = completed;
+        CommandInput.CaretIndex = completed.Length;
+        _completionLast = completed;
         _completionIndex++;
     }
 
-    private void Print_Click(object sender, RoutedEventArgs e)
+    private async void Print_Click(object sender, RoutedEventArgs e)
     {
         var tab = _active;
         if (tab is null) return;
@@ -399,6 +483,16 @@ public partial class MainWindow
         {
             SetStatus("终端没有可打印内容", true);
             return;
+        }
+
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        if (lines.Length > 5000)
+        {
+            bool proceed = await ConfirmAsync(
+                "打印内容较长",
+                $"当前终端有 {lines.Length:N0} 行，打印可能需要较长时间。\n\n是否继续？",
+                "继续打印");
+            if (!proceed) return;
         }
 
         try
@@ -411,7 +505,9 @@ public partial class MainWindow
                 FontFamily = new FontFamily("Consolas"),
                 FontSize = 9,
                 PagePadding = new Thickness(36),
-                ColumnWidth = dialog.PrintableAreaWidth
+                // PagePadding is inside PrintableAreaWidth; adding it back to
+                // ColumnWidth would push every line past the right margin.
+                ColumnWidth = Math.Max(1, dialog.PrintableAreaWidth - 72)
             };
             document.PageWidth = dialog.PrintableAreaWidth;
             document.PageHeight = dialog.PrintableAreaHeight;
@@ -422,11 +518,20 @@ public partial class MainWindow
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 8)
             });
-            document.Blocks.Add(new Paragraph(new Run(text))
+
+            // Split the transcript into bounded paragraphs instead of one giant
+            // Run; FlowDocument paginates large blocks much more predictably.
+            const int LinesPerParagraph = 200;
+            for (int start = 0; start < lines.Length; start += LinesPerParagraph)
             {
-                Margin = new Thickness(0),
-                LineHeight = 12
-            });
+                int count = Math.Min(LinesPerParagraph, lines.Length - start);
+                string chunk = string.Join('\n', lines, start, count);
+                document.Blocks.Add(new Paragraph(new Run(chunk))
+                {
+                    Margin = new Thickness(0),
+                    LineHeight = 12
+                });
+            }
 
             dialog.PrintDocument(
                 ((IDocumentPaginatorSource)document).DocumentPaginator,

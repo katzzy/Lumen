@@ -28,7 +28,6 @@ public partial class MainWindow
 {
     private async void StartSession(SessionProfile profile, ITerminalTransport transport)
     {
-        if (ActualWidth < 900 && !_sidebarCollapsed) SetSidebarCollapsed(true);
         var existing = _tabs.FirstOrDefault(t => t.Profile.Id == profile.Id);
         if (existing is not null)
         {
@@ -269,9 +268,7 @@ public partial class MainWindow
         if (CommandBar.Visibility == Visibility.Visible)
         {
             CommandInput.Clear();
-            _completionPrefix = "";
-            _completionIndex = 0;
-            if (_active is not null) _active.CommandHistoryIndex = _active.CommandHistory.Count;
+            ResetCommandNavigation();
             CommandInput.Focus();
         }
         else if (tab.HexMode) tab.HexView.Focus();
@@ -342,6 +339,7 @@ public partial class MainWindow
         var session = _active?.Session;
         bool has = session is not null;
         bool connected = session?.IsConnected == true;
+        bool locked = _active?.Locked == true;
 
         ActiveDot.Background = connected
             ? Res("Brush.Green")
@@ -365,14 +363,16 @@ public partial class MainWindow
         QuickCommandButton.IsEnabled = has && _active?.Locked != true;
 
         var serial = session?.Transport as SerialConnection;
-        DtrToggle.IsEnabled = serial is not null;
-        RtsToggle.IsEnabled = serial is not null;
+        // DTR/RTS and baud changes poke the hardware; a read-only session must
+        // not be able to reset the device through them.
+        DtrToggle.IsEnabled = serial is not null && !locked;
+        RtsToggle.IsEnabled = serial is not null && !locked;
         _suppressToggle = true;
         DtrToggle.IsChecked = serial?.Dtr ?? false;
         RtsToggle.IsChecked = serial?.Rts ?? false;
         _suppressToggle = false;
 
-        BaudCombo.IsEnabled = connected && serial is not null;
+        BaudCombo.IsEnabled = connected && serial is not null && !locked;
         int baud = _active?.Profile.Serial.BaudRate ?? 9600;
         EnsureBaudRate(baud);
         _suppressBaud = true;

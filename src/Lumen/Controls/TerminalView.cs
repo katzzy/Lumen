@@ -522,14 +522,30 @@ public sealed partial class TerminalView : FrameworkElement
 
     private void SendInputBytes(byte[] bytes)
     {
-        if (BroadcastBytes is not null) BroadcastBytes(bytes);
-        else _session?.SendBytes(bytes);
+        // Broadcast only from a live, non-transferring source. Otherwise typing
+        // in a disconnected tab would still reach the other sessions.
+        if (BroadcastBytes is not null &&
+            _session is { IsConnected: true, IsTransferActive: false })
+        {
+            BroadcastBytes(bytes);
+        }
+        else
+        {
+            _session?.SendBytes(bytes);
+        }
     }
 
     private void SendInputText(string text)
     {
-        if (BroadcastText is not null) BroadcastText(text);
-        else _session?.SendText(text);
+        if (BroadcastText is not null &&
+            _session is { IsConnected: true, IsTransferActive: false })
+        {
+            BroadcastText(text);
+        }
+        else
+        {
+            _session?.SendText(text);
+        }
     }
 
     private void OnImeComposition(object sender, TextCompositionEventArgs e) =>

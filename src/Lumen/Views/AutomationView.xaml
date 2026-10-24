@@ -66,7 +66,7 @@
                                Margin="2,6,0,14" />
 
                     <TextBlock Text="Expect 自动响应" Style="{StaticResource Text.Section}" Margin="0,4,0,4" />
-                    <TextBlock Text="每行一条：正则 => 发送内容；前缀 ! 为字面量，+ 为可重复触发。示例：Password: => admin"
+                    <TextBlock Text="每行一条：正则 => 发送内容；前缀 ! 为字面量，+ 为可重复触发；行首特殊字符用 \ 转义；可选上一行 @expect 设置 appendEnter/cooldown/enabled。示例：Password: => admin"
                                FontSize="11"
                                Foreground="{StaticResource Brush.TextMuted}"
                                TextWrapping="Wrap"
@@ -83,7 +83,7 @@
                              Margin="0,0,0,14" />
 
                     <TextBlock Text="关键字高亮" Style="{StaticResource Text.Section}" Margin="0,4,0,4" />
-                    <TextBlock Text="每行一条：模式 => #RRGGBB；前缀 ! 为字面量。示例：ERROR|fail => #F85149"
+                    <TextBlock Text="每行一条：模式 => #RRGGBB；前缀 ! 为字面量；行首特殊字符用 \ 转义；可选上一行 @highlight 设置 enabled。示例：ERROR|fail => #F85149"
                                FontSize="11"
                                Foreground="{StaticResource Brush.TextMuted}"
                                TextWrapping="Wrap"

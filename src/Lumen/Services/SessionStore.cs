@@ -40,9 +40,10 @@ public sealed class SessionStore
             Save();
         }
 
+        Sessions.RemoveAll(session => session is null);
         foreach (var session in Sessions)
         {
-            if (string.IsNullOrWhiteSpace(session.Id)) session.Id = Guid.NewGuid().ToString("N");
+            session.Normalize();
         }
     }
 
@@ -92,18 +93,26 @@ public sealed class SessionStore
     {
         var json = File.ReadAllText(path, Encoding.UTF8);
         var imported = JsonSerializer.Deserialize<List<SessionProfile>>(json, JsonOptions) ?? new();
+        imported.RemoveAll(profile => profile is null);
+
+        // Validate/normalize the whole file before mutating the store, so a bad
+        // entry cannot leave the persisted list half-imported.
+        var prepared = new List<SessionProfile>(imported.Count);
         foreach (var profile in imported)
         {
-            if (string.IsNullOrWhiteSpace(profile.Id) ||
-                Sessions.Any(existing => existing.Id == profile.Id))
+            profile.Normalize();
+            if (Sessions.Any(existing => existing.Id == profile.Id) ||
+                prepared.Any(existing => existing.Id == profile.Id))
             {
                 profile.Id = Guid.NewGuid().ToString("N");
             }
             if (string.IsNullOrWhiteSpace(profile.Name)) profile.Name = "导入的会话";
-            Sessions.Add(profile);
+            prepared.Add(profile);
         }
-        if (imported.Count > 0) Save();
-        return imported;
+
+        foreach (var profile in prepared) Sessions.Add(profile);
+        if (prepared.Count > 0) Save();
+        return prepared;
     }
 
     private static List<SessionProfile> CreateSeedSessions() => new();

@@ -85,6 +85,11 @@ public partial class MainWindow
             SetStatus("会话已锁定，无法粘贴", true);
             return;
         }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("文件传输进行中，无法粘贴", true);
+            return;
+        }
 
         if (tab.Profile.ConfirmDangerousPaste && ContainsDangerousCommand(text))
         {
@@ -222,6 +227,11 @@ public partial class MainWindow
             SetStatus("会话已锁定，无法发送字节", true);
             return;
         }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("文件传输进行中，无法发送原始字节", true);
+            return;
+        }
 
         var view = new SendBytesView(
             Lumen.Terminal.EncodingUtil.Resolve(tab.Profile.Encoding),
@@ -247,6 +257,11 @@ public partial class MainWindow
         if (tab.Locked)
         {
             SetStatus("会话已锁定，无法传输文件", true);
+            return;
+        }
+        if (tab.Session.IsScriptRunning)
+        {
+            SetStatus("脚本正在运行，无法开始文件传输", true);
             return;
         }
         if (tab.Session.IsTransferActive)
@@ -476,6 +491,12 @@ public partial class MainWindow
         {
             RevertBaudSelection();
             SetStatus("当前会话不是已连接的串口，无法修改波特率", true);
+            return;
+        }
+        if (tab.Locked)
+        {
+            RevertBaudSelection();
+            SetStatus("会话已锁定，无法修改波特率", true);
             return;
         }
 

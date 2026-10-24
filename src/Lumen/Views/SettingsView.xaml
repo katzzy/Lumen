@@ -119,7 +119,7 @@
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        TextWrapping="Wrap"
                                        Margin="0,5,0,0" />
-                            <TextBlock Text="Lumen 1.4 · 为网络运维打造的串口控制台"
+                            <TextBlock Text="Lumen 1.4.1 · 为网络运维打造的串口控制台"
                                        FontSize="11"
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        Margin="0,10,0,0" />

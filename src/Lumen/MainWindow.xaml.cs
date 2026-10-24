@@ -45,9 +45,12 @@ public partial class MainWindow : Window
     private bool _suppressBaud;
     private bool _broadcast;
     private bool _sidebarCollapsed;
+    private bool? _sidebarManualState;
     private bool _lastNarrowLayout;
     private string _completionPrefix = "";
+    private string _completionLast = "";
     private int _completionIndex;
+    private bool _completionActive;
     private CancellationTokenSource? _findSearchCts;
 
     public MainWindow(AppSettings settings, SessionStore store, string[] args)
@@ -331,10 +334,17 @@ public partial class MainWindow : Window
             if (_tabs.Count > 0) ActivateTab(_tabs[^1]);
             else
             {
+                _broadcast = false;
+                SetCommandBarVisible(false);
                 UpdateToolbar();
                 UpdateEmptyState();
                 SetStatus("就绪");
             }
+        }
+        else
+        {
+            // Broadcast counts and the menu state may depend on the closed tab.
+            UpdateToolbar();
         }
         UpdateSessionCount();
     }
@@ -622,6 +632,12 @@ public partial class MainWindow : Window
         if (tab.Locked)
         {
             SetStatus("会话已锁定，无法发送命令", true);
+            HideOverlay();
+            return;
+        }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("文件传输进行中，无法发送命令", true);
             HideOverlay();
             return;
         }

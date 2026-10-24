@@ -23,7 +23,9 @@ public static class AutomationScript
         "  sendline <文本>       发送文本并追加回车\n" +
         "  wait <毫秒>           等待\n" +
         "  expect <正则> [毫秒]  等待设备输出匹配，超时继续\n" +
+        "  expect @<毫秒> <正则>  显式指定超时，避免末尾数字歧义\n" +
         "  expect! <文本> [毫秒] 按字面量等待\n" +
+        "  expect! @<毫秒> <文本>\n" +
         "  log <文本>           在终端显示本地提示\n" +
         "# 开头为注释";
 
@@ -37,7 +39,7 @@ public static class AutomationScript
             var line = lines[i].Trim();
             if (line.Length == 0 || line.StartsWith('#')) continue;
 
-            int space = line.IndexOf(' ');
+            int space = line.IndexOfAny(new[] { ' ', '\t' });
             var command = (space < 0 ? line : line[..space]).ToLowerInvariant();
             var argument = space < 0 ? "" : line[(space + 1)..].Trim();
 
@@ -90,16 +92,40 @@ public static class AutomationScript
 
         var text = argument;
         int timeout = 10000;
-        int space = argument.LastIndexOf(' ');
-        if (space > 0 && int.TryParse(argument[(space + 1)..], out int parsed))
+        bool explicitTimeout = false;
+
+        // Preferred form: "expect @500 <pattern>". It removes the ambiguity
+        // where a pattern such as "ADC 1023" would otherwise be read as a
+        // pattern plus a trailing timeout.
+        if (argument.Length > 2 && argument[0] == '@')
         {
-            if (parsed < 100 || parsed > 600000)
+            int firstSpace = argument.IndexOfAny(new[] { ' ', '\t' });
+            if (firstSpace > 1 && int.TryParse(argument[1..firstSpace], out int explicitMs))
             {
-                error = "expect 超时需在 100 - 600000 毫秒之间";
-                return false;
+                if (explicitMs < 100 || explicitMs > 600000)
+                {
+                    error = "expect 超时需在 100 - 600000 毫秒之间";
+                    return false;
+                }
+                timeout = explicitMs;
+                text = argument[(firstSpace + 1)..].Trim();
+                explicitTimeout = true;
             }
-            timeout = parsed;
-            text = argument[..space].Trim();
+        }
+
+        if (!explicitTimeout)
+        {
+            int space = argument.LastIndexOfAny(new[] { ' ', '\t' });
+            if (space > 0 && int.TryParse(argument[(space + 1)..], out int parsed))
+            {
+                if (parsed < 100 || parsed > 600000)
+                {
+                    error = "expect 超时需在 100 - 600000 毫秒之间";
+                    return false;
+                }
+                timeout = parsed;
+                text = argument[..space].Trim();
+            }
         }
 
         if (text.Length == 0)
@@ -158,15 +184,20 @@ public static class AutomationScriptRunner
                 case ScriptStepKind.SendLine:
                     if (!session.TryEncodeEscaped(step.Text, out var bytes))
                     {
-                        session.InjectSystem($"脚本：无法解析转义文本：{step.Text}", true);
-                        continue;
+                        throw new InvalidOperationException($"无法解析转义文本：{step.Text}");
                     }
                     if (step.Kind == ScriptStepKind.SendLine)
                     {
                         Array.Resize(ref bytes, bytes.Length + 1);
                         bytes[^1] = 0x0D;
                     }
-                    session.SendBytes(bytes);
+                    // Exclude output from before this command from the next
+                    // expect window, while still capturing a synchronous echo.
+                    session.MarkExpectBoundary();
+                    if (!session.SendBytes(bytes))
+                    {
+                        throw new InvalidOperationException("发送失败，会话未连接或已锁定");
+                    }
                     break;
 
                 case ScriptStepKind.Wait:

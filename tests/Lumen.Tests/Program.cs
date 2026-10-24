@@ -283,9 +283,40 @@ using (var lockSession = new TerminalSession(
     lockSession.SendText("A");
     lockSession.InputLocked = true;
     lockSession.SendText("B");
-    lockSession.SendBytes(new byte[] { 0x43 });
-    Check("session input lock", Encoding.UTF8.GetString(recording.Sent.ToArray()) == "A",
+    bool lockedWrite = lockSession.SendBytes(new byte[] { 0x43 });
+    Check("session input lock",
+        !lockedWrite && Encoding.UTF8.GetString(recording.Sent.ToArray()) == "A",
         Encoding.UTF8.GetString(recording.Sent.ToArray()));
+}
+
+// Script expect must not reuse output already matched by an earlier step.
+var echoTransport = new RecordingTransport();
+var echoProfile = SessionProfile.CreateDefault("expect cursor test");
+echoProfile.AutoLog = false;
+using (var echoSession = new TerminalSession(
+           echoProfile, echoTransport, new AppSettings { AutoLog = false }))
+{
+    echoSession.ConnectAsync().GetAwaiter().GetResult();
+    echoTransport.Emit("Switch# ");
+    bool firstMatch = echoSession.WaitForOutputAsync(
+        "Switch#", isRegex: false, 500, CancellationToken.None).GetAwaiter().GetResult();
+    bool staleMatch = echoSession.WaitForOutputAsync(
+        "Switch#", isRegex: false, 150, CancellationToken.None).GetAwaiter().GetResult();
+    echoTransport.Emit("Switch# ");
+    bool nextMatch = echoSession.WaitForOutputAsync(
+        "Switch#", isRegex: false, 500, CancellationToken.None).GetAwaiter().GetResult();
+    Check("expect consumes matched output", firstMatch && !staleMatch && nextMatch,
+        $"{firstMatch}/{staleMatch}/{nextMatch}");
+
+    echoTransport.Emit("old prompt");
+    echoSession.MarkExpectBoundary();
+    bool beforeBoundary = echoSession.WaitForOutputAsync(
+        "old prompt", isRegex: false, 150, CancellationToken.None).GetAwaiter().GetResult();
+    echoTransport.Emit("old prompt");
+    bool afterBoundary = echoSession.WaitForOutputAsync(
+        "old prompt", isRegex: false, 500, CancellationToken.None).GetAwaiter().GetResult();
+    Check("expect boundary excludes pre-send output", !beforeBoundary && afterBoundary,
+        $"{beforeBoundary}/{afterBoundary}");
 }
 
 // Named pipe transport
@@ -370,6 +401,183 @@ Check("highlight runtime", automation.Highlights.Count == 2 &&
     automation.Highlights[0].Regex.IsMatch("an ERROR occurred") &&
     automation.Highlights[1].Regex.IsMatch("Switch#"));
 
+int oldAutomationVersion = automation.Version;
+automation.Update(expectRules, highlightRules);
+Check("automation version bumps on rule edit", automation.Version > oldAutomationVersion,
+    $"{oldAutomationVersion} -> {automation.Version}");
+
+// A repeatable rule must not keep matching a prompt that was already consumed.
+var repeatAutomation = new AutomationRuntime();
+int repeatResponses = 0;
+repeatAutomation.SendText = _ => repeatResponses++;
+repeatAutomation.Update(new[]
+{
+    new ExpectRule
+    {
+        Pattern = "ready",
+        IsRegex = false,
+        Response = "go",
+        Once = false,
+        CooldownMs = 0
+    }
+}, null);
+repeatAutomation.Feed("device ready\r\n");
+repeatAutomation.Feed("unrelated output");
+Check("expect repeat consumes matched text", repeatResponses == 1, repeatResponses.ToString());
+
+// The editable rule text must preserve flags, delimiters and non-default options.
+var roundTripRules = new List<ExpectRule>
+{
+    new()
+    {
+        Pattern = "+5V",
+        IsRegex = false,
+        Response = "ok",
+        AppendEnter = false,
+        Once = false,
+        CooldownMs = 0,
+        Enabled = false
+    },
+    new() { Pattern = "a=>b", IsRegex = true, Response = "c=>d" },
+    new() { Pattern = "#", IsRegex = false, Response = "hash" },
+    new() { Pattern = "@expect", IsRegex = true, Response = "at" }
+};
+string roundTripText = AutomationTextParser.BuildExpectRules(roundTripRules);
+bool roundTripParsed = AutomationTextParser.TryParseExpectRules(
+    roundTripText, out var roundTripResult, out string roundTripError);
+Check("expect rule text round-trip",
+    roundTripParsed && roundTripResult.Count == 4 &&
+    roundTripResult[0].Pattern == "+5V" &&
+    !roundTripResult[0].IsRegex && !roundTripResult[0].Once &&
+    !roundTripResult[0].AppendEnter && roundTripResult[0].CooldownMs == 0 &&
+    !roundTripResult[0].Enabled &&
+    roundTripResult[1].Pattern == "a=>b" && roundTripResult[1].Response == "c=>d" &&
+    roundTripResult[2].Pattern == "#" && !roundTripResult[2].IsRegex &&
+    roundTripResult[3].Pattern == "@expect",
+    roundTripError + "\n" + roundTripText);
+
+var roundTripHighlights = new List<HighlightRule>
+{
+    new() { Pattern = "#", IsRegex = false, Color = "#F85149", Enabled = false },
+    new() { Pattern = "a=>b", IsRegex = true, Color = "#22D3EE" },
+    new() { Pattern = "@highlight", IsRegex = true, Color = "#F0B429" }
+};
+string highlightText = AutomationTextParser.BuildHighlightRules(roundTripHighlights);
+bool highlightParsed = AutomationTextParser.TryParseHighlightRules(
+    highlightText, out var highlightResult, out string highlightError);
+Check("highlight rule text round-trip",
+    highlightParsed && highlightResult.Count == 3 &&
+    highlightResult[0].Pattern == "#" && !highlightResult[0].IsRegex &&
+    !highlightResult[0].Enabled && highlightResult[0].Color == "#F85149" &&
+    highlightResult[1].Pattern == "a=>b" &&
+    highlightResult[2].Pattern == "@highlight",
+    highlightError + "\n" + highlightText);
+
+var exactRules = new List<ExpectRule>
+{
+    new()
+    {
+        Pattern = " leading ",
+        IsRegex = false,
+        Response = " response\nline2 ",
+        AppendEnter = false,
+        Once = false,
+        CooldownMs = 0,
+        Enabled = false
+    },
+    new() { Pattern = "a\\=>b", IsRegex = true, Response = "x" },
+    new() { Pattern = " ", IsRegex = false, Response = "space" }
+};
+string exactText = AutomationTextParser.BuildExpectRules(exactRules);
+bool exactParsed = AutomationTextParser.TryParseExpectRules(
+    exactText, out var exactResult, out string exactError);
+Check("expect exact rule round-trip",
+    exactParsed && exactResult.Count == 3 &&
+    exactResult[0].Pattern == " leading " &&
+    exactResult[0].Response == " response\nline2 " &&
+    !exactResult[0].IsRegex && !exactResult[0].Once &&
+    !exactResult[0].AppendEnter && exactResult[0].CooldownMs == 0 &&
+    !exactResult[0].Enabled &&
+    exactResult[1].Pattern == "a\\=>b" &&
+    exactResult[2].Pattern == " " && !exactResult[2].IsRegex,
+    exactError + "\n" + exactText);
+
+var exactHighlights = new List<HighlightRule>
+{
+    new() { Pattern = " padded ", IsRegex = false, Color = "#F85149", Enabled = false }
+};
+string exactHighlightText = AutomationTextParser.BuildHighlightRules(exactHighlights);
+bool exactHighlightParsed = AutomationTextParser.TryParseHighlightRules(
+    exactHighlightText, out var exactHighlightResult, out string exactHighlightError);
+Check("highlight exact rule round-trip",
+    exactHighlightParsed && exactHighlightResult.Count == 1 &&
+    exactHighlightResult[0].Pattern == " padded " &&
+    !exactHighlightResult[0].IsRegex &&
+    !exactHighlightResult[0].Enabled &&
+    exactHighlightResult[0].Color == "#F85149",
+    exactHighlightError + "\n" + exactHighlightText);
+
+Check("bad expect options rejected",
+    !AutomationTextParser.TryParseExpectRules(
+        "@expect cooldown=999999\nx => y", out _, out _));
+Check("exact expect requires quoted pattern",
+    !AutomationTextParser.TryParseExpectRules("@expect pattern=unquoted", out _, out _));
+Check("exact expect requires pattern",
+    !AutomationTextParser.TryParseExpectRules("@expect response=\"x\"", out _, out _));
+Check("orphan expect options rejected",
+    !AutomationTextParser.TryParseExpectRules("@expect enabled=false", out _, out _));
+
+var invalidAutomation = new AutomationRuntime();
+invalidAutomation.Update(new[] { new ExpectRule { Pattern = "(", IsRegex = true } }, null);
+Check("invalid automation regex reported",
+    invalidAutomation.LastError is not null && !invalidAutomation.HasExpectRules);
+
+var postedAutomation = new AutomationRuntime();
+var postedResponse = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+postedAutomation.SendText = text => postedResponse.TrySetResult(text);
+postedAutomation.Update(new[]
+{
+    new ExpectRule { Pattern = "Password:", IsRegex = false, Response = "admin", Once = true }
+}, null);
+postedAutomation.Post("Password: ");
+Check("automation worker processes queued text",
+    postedResponse.Task.Wait(1000) && postedResponse.Task.Result == "admin\r",
+    postedResponse.Task.Status.ToString());
+postedAutomation.Dispose();
+
+// Hand-edited/imported JSON can contain explicit nulls despite the model defaults.
+var malformed = new SessionProfile
+{
+    Id = "",
+    Name = "",
+    Group = "",
+    VendorId = "",
+    Serial = null!,
+    QuickCommands = null!,
+    ExpectRules = null!,
+    HighlightRules = null!
+};
+malformed.Normalize();
+Check("profile normalize repairs nulls",
+    malformed.Serial is not null &&
+    malformed.QuickCommands is not null &&
+    malformed.ExpectRules is not null &&
+    malformed.HighlightRules is not null &&
+    malformed.Id.Length > 0 && malformed.Name.Length > 0,
+    $"id={malformed.Id} name={malformed.Name}");
+var clonedMalformed = new SessionProfile
+{
+    Serial = null!,
+    QuickCommands = null!,
+    ExpectRules = null!,
+    HighlightRules = null!
+}.Clone();
+Check("profile clone is null safe",
+    clonedMalformed.Serial is not null &&
+    clonedMalformed.QuickCommands is not null &&
+    clonedMalformed.ExpectRules is not null &&
+    clonedMalformed.HighlightRules is not null);
+
 Check("script parse",
     AutomationScript.TryParse(
         "sendline enable\nwait 50\nexpect Password: 500\nlog ready", out var scriptSteps, out _)
@@ -380,6 +588,22 @@ Check("script parse",
     && scriptSteps[2].TimeoutMs == 500
     && scriptSteps[3].Kind == ScriptStepKind.Log);
 Check("bad script rejected", !AutomationScript.TryParse("bogus command", out _, out _));
+Check("expect explicit timeout",
+    AutomationScript.TryParse("expect @500 Password: 500", out var timedSteps, out _) &&
+    timedSteps.Count == 1 &&
+    timedSteps[0].Text == "Password: 500" &&
+    timedSteps[0].TimeoutMs == 500);
+Check("expect literal explicit timeout",
+    AutomationScript.TryParse("expect! @250 ADC 1023", out var literalSteps, out _) &&
+    literalSteps.Count == 1 &&
+    literalSteps[0].Text == "ADC 1023" &&
+    !literalSteps[0].IsRegex &&
+    literalSteps[0].TimeoutMs == 250);
+Check("script accepts tab separators",
+    AutomationScript.TryParse("sendline\tenable", out var tabSteps, out _) &&
+    tabSteps.Count == 1 &&
+    tabSteps[0].Kind == ScriptStepKind.SendLine &&
+    tabSteps[0].Text == "enable");
 
 // XAML smoke test: load every overlay view so broken resources or bindings fail here.
 Exception? uiError = null;
@@ -402,6 +626,7 @@ var uiThread = new Thread(() =>
         _ = new Lumen.Views.SessionEditorView(SessionProfile.CreateDefault(), new List<SerialPortInfo>(), isNew: true);
         _ = new Lumen.Views.NamedPipeConnectView();
         _ = new Lumen.Views.AutomationView(SessionProfile.CreateDefault());
+        _ = new Lumen.MainWindow(new AppSettings(), new SessionStore(), Array.Empty<string>());
         using (var demoSpan = new TerminalSession(
                    SessionProfile.CreateDefault("ui transfer", "ui"), new DemoTransport(), new AppSettings()))
         {
@@ -458,6 +683,8 @@ sealed class RecordingTransport : ITerminalTransport
     public Task SendBreakAsync(int durationMs) => Task.CompletedTask;
     public void SetDtr(bool enabled) { }
     public void SetRts(bool enabled) { }
+
+    public void Emit(string text) => DataReceived?.Invoke(Encoding.UTF8.GetBytes(text));
 
     public void Dispose()
     {

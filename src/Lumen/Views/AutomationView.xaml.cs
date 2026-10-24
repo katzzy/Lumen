@@ -19,6 +19,9 @@ public partial class AutomationView : UserControl
         ScriptAutoRunCheck.IsChecked = _profile.ScriptAutoRun;
         ExpectBox.Text = AutomationTextParser.BuildExpectRules(_profile.ExpectRules);
         HighlightBox.Text = AutomationTextParser.BuildHighlightRules(_profile.HighlightRules);
+        var validation = new AutomationRuntime();
+        validation.Update(_profile.ExpectRules, _profile.HighlightRules);
+        if (!string.IsNullOrEmpty(validation.LastError)) ErrorText.Text = validation.LastError;
         Loaded += (_, _) => ScriptBox.Focus();
     }
 

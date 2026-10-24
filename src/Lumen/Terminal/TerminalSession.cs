@@ -31,8 +31,11 @@ public sealed class TerminalSession : IDisposable
     private CancellationTokenSource? _transferCts;
     private readonly object _echoLock = new();
     private readonly StringBuilder _echo = new();
+    private long _echoBaseChars;
+    private long _expectCursor;
     private CancellationTokenSource? _scriptCts;
     private int _scriptRunning;
+    private volatile bool _inputLocked;
 
     public TerminalSession(SessionProfile profile, ITerminalTransport transport, AppSettings settings)
     {
@@ -58,7 +61,14 @@ public sealed class TerminalSession : IDisposable
         };
         _parser.Response = text => SendText(text);
 
-        Automation = new AutomationRuntime { SendText = text => SendText(text) };
+        Automation = new AutomationRuntime
+        {
+            SendText = text => SendText(text),
+            CanProcess = () => !InputLocked,
+            // Expect responses must not run regex/write work on the serial read
+            // thread; hand delivery to the UI queue when one is available.
+            Dispatch = action => _ui.Post(_ => action(), null)
+        };
         Automation.Update(_profile.ExpectRules, _profile.HighlightRules);
 
         _transport.DataReceived += OnDataReceived;
@@ -76,7 +86,11 @@ public sealed class TerminalSession : IDisposable
     public VendorProfile? Vendor => _vendor;
     public bool IsConnected { get; private set; }
     public bool IsPasting { get; private set; }
-    public bool InputLocked { get; set; }
+    public bool InputLocked
+    {
+        get => _inputLocked;
+        set => _inputLocked = value;
+    }
     public bool IsTransferActive => Volatile.Read(ref _transferChannel) is not null;
     public string Title { get; private set; } = "";
     public string? LogPath => _log.FilePath;
@@ -105,7 +119,8 @@ public sealed class TerminalSession : IDisposable
             }
 
             IsConnected = true;
-            lock (_echoLock) _echo.Clear();
+            ClearEchoBuffer();
+            Automation.Reset();
             StateChanged?.Invoke();
 
             if (_profile.AutoLog && _settings.AutoLog) StartLog();
@@ -185,9 +200,16 @@ public sealed class TerminalSession : IDisposable
             lock (_echoLock)
             {
                 _echo.Append(text);
-                if (_echo.Length > 65536) _echo.Remove(0, 32768);
+                if (_echo.Length > 65536)
+                {
+                    _echo.Remove(0, 32768);
+                    _echoBaseChars += 32768;
+                    if (_expectCursor < _echoBaseChars) _expectCursor = _echoBaseChars;
+                }
             }
-            Automation.Feed(text);
+            // While read-only, do not let expect rules consume prompts: the
+            // response would be dropped and a once-only rule would stay spent.
+            if (!InputLocked && Automation.HasExpectRules) Automation.Post(text);
 
             lock (_buffer.SyncRoot)
             {
@@ -343,8 +365,16 @@ public sealed class TerminalSession : IDisposable
         if (_disposed || IsConnected) return;
         IsConnected = true;
         if (_profile.AutoLog && _settings.AutoLog) StartLog();
+        _decoder = _encoding.GetDecoder();
+        ClearEchoBuffer();
+        Automation.Reset();
         InjectSystem("串口已重新连接");
         StateChanged?.Invoke();
+
+        if (_profile.ScriptAutoRun && !string.IsNullOrWhiteSpace(_profile.Script) && !InputLocked)
+        {
+            _ = RunScriptAsync(null, CancellationToken.None);
+        }
     }
 
     public void SendText(string text) => SendTextCore(text, logTransmit: true);
@@ -366,16 +396,18 @@ public sealed class TerminalSession : IDisposable
         }
     }
 
-    public void SendBytes(byte[] bytes)
+    public bool SendBytes(byte[] bytes)
     {
-        if (_disposed || InputLocked || !IsConnected || bytes.Length == 0) return;
+        if (_disposed || InputLocked || !IsConnected || bytes.Length == 0) return false;
         try
         {
             _transport.Write(bytes);
+            return true;
         }
         catch (Exception ex)
         {
             HandleDisconnected(ex.Message);
+            return false;
         }
     }
 
@@ -402,6 +434,11 @@ public sealed class TerminalSession : IDisposable
             InjectSystem("脚本：会话已锁定", true);
             return;
         }
+        if (IsTransferActive)
+        {
+            InjectSystem("脚本：文件传输进行中，无法运行脚本", true);
+            return;
+        }
         if (Interlocked.Exchange(ref _scriptRunning, 1) != 0)
         {
             InjectSystem("脚本已在运行", true);
@@ -410,6 +447,7 @@ public sealed class TerminalSession : IDisposable
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         _scriptCts = cts;
+        lock (_echoLock) _expectCursor = _echoBaseChars;
         try
         {
             if (!AutomationScript.TryParse(_profile.Script, out var steps, out var error))
@@ -470,24 +508,61 @@ public sealed class TerminalSession : IDisposable
         {
             token.ThrowIfCancellationRequested();
             string buffer;
-            lock (_echoLock) buffer = _echo.ToString();
+            long bufferStart;
+            lock (_echoLock)
+            {
+                long start = Math.Max(_expectCursor, _echoBaseChars);
+                int from = (int)Math.Min(start - _echoBaseChars, _echo.Length);
+                bufferStart = _echoBaseChars + from;
+                buffer = _echo.ToString(from, _echo.Length - from);
+            }
 
             bool matched;
+            long matchEnd = -1;
             try
             {
-                matched = regex is not null
-                    ? regex.IsMatch(buffer)
-                    : buffer.Contains(pattern, StringComparison.OrdinalIgnoreCase);
+                if (regex is not null)
+                {
+                    var match = regex.Match(buffer);
+                    matched = match.Success;
+                    if (matched) matchEnd = bufferStart + match.Index + match.Length;
+                }
+                else
+                {
+                    int index = buffer.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                    matched = index >= 0;
+                    if (matched) matchEnd = bufferStart + index + pattern.Length;
+                }
             }
             catch
             {
                 matched = false;
             }
-            if (matched) return true;
+
+            if (matched)
+            {
+                // Consume through the match so the next expect step cannot be
+                // satisfied by output that a previous step already matched.
+                lock (_echoLock)
+                {
+                    if (matchEnd > _expectCursor) _expectCursor = matchEnd;
+                }
+                return true;
+            }
 
             await Task.Delay(25, token).ConfigureAwait(false);
         }
         return false;
+    }
+
+    /// <summary>
+    /// Starts a new expect window at the current end of received output. The
+    /// script runner calls this before each send so the following expect step
+    /// cannot be satisfied by an old prompt from before the command.
+    /// </summary>
+    public void MarkExpectBoundary()
+    {
+        lock (_echoLock) _expectCursor = _echoBaseChars + _echo.Length;
     }
 
     public void UpdateAutomationRules()
@@ -613,7 +688,12 @@ public sealed class TerminalSession : IDisposable
 
     private void ClearEchoBuffer()
     {
-        lock (_echoLock) _echo.Clear();
+        lock (_echoLock)
+        {
+            _echo.Clear();
+            _echoBaseChars = 0;
+            _expectCursor = 0;
+        }
     }
 
     private async Task<bool> WaitForEchoAsync(string line, int timeoutMs, CancellationToken token)
@@ -705,6 +785,8 @@ public sealed class TerminalSession : IDisposable
     {
         if (_disposed || !IsConnected)
             throw new InvalidOperationException("会话未连接，无法传输文件。");
+        if (IsScriptRunning)
+            throw new InvalidOperationException("脚本正在运行，无法开始文件传输。");
 
         var channel = new TransportTransferChannel(_transport);
         if (Interlocked.CompareExchange(ref _transferChannel, channel, null) is not null)
@@ -794,6 +876,7 @@ public sealed class TerminalSession : IDisposable
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
         _transport.Reconnected -= OnReconnected;
+        Automation.Dispose();
         _ = _log.StopAsync();
         try
         {

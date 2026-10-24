@@ -182,7 +182,6 @@ public partial class MainWindow
                 tab.Session.Profile.Serial.BreakDurationMs = updated.Serial.BreakDurationMs;
                 if (tab.Session.Transport is SerialConnection serial) serial.SetAutoReconnect(updated.AutoReconnect);
 
-                tab.TitleText.Text = updated.Name;
                 tab.View.TerminalFontSize = updated.FontSize;
                 tab.View.FixedColumns = updated.TerminalColumns;
                 tab.HexView.HexFontSize = Math.Max(10, updated.FontSize - 1.5);

@@ -173,6 +173,9 @@ public sealed partial class TerminalView
         hash.Add(_fontSize);
         hash.Add(_searchVersion);
         hash.Add(_matchIndex);
+        // Highlight rules are drawn inside the cached row, so a rule edit must
+        // invalidate the cache even when the row text itself is unchanged.
+        hash.Add(_session?.Automation.Version ?? 0);
         hash.Add(_hasSelection);
         if (_hasSelection)
         {
@@ -368,11 +371,15 @@ public sealed partial class TerminalView
         var (text, cellAtChar) = line.GetTextWithCells();
         if (text.Length == 0 || cellAtChar.Length == 0) return;
 
+        long deadline = Environment.TickCount64 + 10;
+        int matchCount = 0;
         foreach (var pattern in patterns)
         {
             int index = 0;
             while (index < text.Length)
             {
+                if (Environment.TickCount64 > deadline || matchCount >= 500) return;
+
                 System.Text.RegularExpressions.Match match;
                 try
                 {
@@ -383,6 +390,7 @@ public sealed partial class TerminalView
                     break;
                 }
                 if (!match.Success) break;
+                matchCount++;
 
                 int endChar = match.Index + match.Length - 1;
                 if (match.Length > 0 && endChar < cellAtChar.Length)
