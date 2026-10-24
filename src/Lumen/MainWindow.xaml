@@ -189,14 +189,23 @@
                             <StackPanel>
                                 <Grid>
                                     <TextBlock Text="快速连接" Style="{StaticResource Text.Section}" VerticalAlignment="Center" />
-                                    <Button HorizontalAlignment="Right"
-                                            Style="{StaticResource BtnIcon}"
-                                            Content="&#xE72C;"
-                                            Width="22"
-                                            Height="22"
-                                            FontSize="11"
-                                            ToolTip="刷新串口列表" AutomationProperties.Name="刷新串口"
-                                            Click="RefreshPorts_Click" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Style="{StaticResource BtnIcon}"
+                                                Content="&#xE8AB;"
+                                                Width="22"
+                                                Height="22"
+                                                FontSize="11"
+                                                ToolTip="连接命名管道" AutomationProperties.Name="连接命名管道"
+                                                Click="NamedPipe_Click" />
+                                        <Button Style="{StaticResource BtnIcon}"
+                                                Content="&#xE72C;"
+                                                Width="22"
+                                                Height="22"
+                                                FontSize="11"
+                                                Margin="2,0,0,0"
+                                                ToolTip="刷新串口列表" AutomationProperties.Name="刷新串口"
+                                                Click="RefreshPorts_Click" />
+                                    </StackPanel>
                                 </Grid>
                                 <ComboBox x:Name="PortCombo"
                                           Height="32"
@@ -323,7 +332,7 @@
                                         <TextBlock Text="设置" Margin="8,0,0,0" FontSize="12" />
                                     </StackPanel>
                                 </Button>
-                                <TextBlock Text="Lumen 1.2"
+                                <TextBlock Text="Lumen 1.3"
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            FontSize="10"
@@ -396,6 +405,12 @@
                                         Style="{StaticResource BtnTool}"
                                         ToolTip="关闭当前标签并重新连接串口"
                                         Click="Reconnect_Click" />
+                                <ComboBox x:Name="BaudCombo"
+                                          Width="92"
+                                          Height="26"
+                                          Margin="2,0,0,0"
+                                          ToolTip="当前连接波特率，选择后立即生效"
+                                          SelectionChanged="BaudCombo_SelectionChanged" />
                                 <Button x:Name="BreakButton"
                                         Content="Break"
                                         Style="{StaticResource BtnTool}"
@@ -425,6 +440,14 @@
                                               Margin="2,0,0,0"
                                               Checked="RtsToggle_Changed"
                                               Unchecked="RtsToggle_Changed" />
+                                <TextBlock x:Name="DsrText"
+                                           Text="DSR —"
+                                           FontSize="10"
+                                           FontFamily="{StaticResource Font.Mono}"
+                                           Foreground="{StaticResource Brush.TextMuted}"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"
+                                           ToolTip="DSR 输入信号状态（只读）" />
                                 <Border Width="1" Height="16" Background="{StaticResource Brush.Border}" Margin="8,0" />
                                 <Button x:Name="LogButton"
                                         Content="日志"
@@ -446,12 +469,30 @@
                                         Style="{StaticResource BtnTool}"
                                         ToolTip="发送任意字节 / 转义序列（Ctrl+Shift+H）"
                                         Click="SendBytes_Click" />
+                                <Button x:Name="TransferButton"
+                                        Content="传输"
+                                        Style="{StaticResource BtnTool}"
+                                        ToolTip="XMODEM / YMODEM 收发文件"
+                                        Click="FileTransfer_Click" />
                                 <ToggleButton x:Name="HexToggle"
                                               Content="Hex"
                                               Style="{StaticResource BtnToggle}"
                                               ToolTip="切换十六进制接收视图"
                                               Margin="2,0,0,0"
                                               Click="HexToggle_Click" />
+                                <Button x:Name="ColumnsButton"
+                                        Content="列宽"
+                                        Style="{StaticResource BtnTool}"
+                                        ToolTip="终端列宽：自适应 / 80 / 132 列"
+                                        Click="Columns_Click">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="自适应窗口" Tag="0" Click="ColumnsMenuItem_Click" />
+                                            <MenuItem Header="80 列" Tag="80" Click="ColumnsMenuItem_Click" />
+                                            <MenuItem Header="132 列" Tag="132" Click="ColumnsMenuItem_Click" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
                                 <Button x:Name="ClearButton"
                                         Content="清屏"
                                         Style="{StaticResource BtnTool}"

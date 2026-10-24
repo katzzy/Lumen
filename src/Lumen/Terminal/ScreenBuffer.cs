@@ -43,6 +43,10 @@ public sealed partial class ScreenBuffer
     public bool AppCursorKeys { get; set; }
     public bool BracketedPaste { get; set; }
     public bool NewLineMode { get; set; }
+    public MouseTrackingMode MouseTracking { get; set; }
+    public MouseEncodingMode MouseEncoding { get; set; }
+    /// <summary>DECCOLM request: 0 = no request, 80 or 132.</summary>
+    public int PreferredColumns { get; set; }
     public bool IsAltScreen => _altActive;
     public int ScrollTop => _scrollTop;
     public int ScrollBottom => _scrollBottom;
@@ -109,6 +113,9 @@ public sealed partial class ScreenBuffer
         AppCursorKeys = false;
         BracketedPaste = false;
         NewLineMode = false;
+        MouseTracking = MouseTrackingMode.None;
+        MouseEncoding = MouseEncodingMode.Default;
+        PreferredColumns = 0;
         TotalPrinted = 0;
         _tabStops = new bool[Columns];
         for (int i = 0; i < Columns; i += 8) _tabStops[i] = true;

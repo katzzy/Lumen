@@ -50,6 +50,13 @@ public sealed partial class TerminalView
         if (_session is null) return;
         Focus();
         System.Windows.Input.Keyboard.Focus(this);
+
+        if (TryReportMouseButton(MouseButton.Left, pressed: true))
+        {
+            e.Handled = true;
+            return;
+        }
+
         var cell = PointToCell(e.GetPosition(this));
         if (e.ClickCount == 2)
         {
@@ -79,27 +86,60 @@ public sealed partial class TerminalView
         e.Handled = true;
     }
 
+    protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonDown(e);
+        if (_session is null) return;
+        if (TryReportMouseButton(MouseButton.Right, pressed: true)) e.Handled = true;
+    }
+
+    protected override void OnMouseDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (_session is null || e.ChangedButton != MouseButton.Middle) return;
+        if (TryReportMouseButton(MouseButton.Middle, pressed: true)) e.Handled = true;
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (!_selecting || _session is null) return;
-        var p = e.GetPosition(this);
-        if (p.Y < PadY && _scrollOffset < MaxScrollOffset())
+        if (_session is null) return;
+
+        if (_selecting)
         {
-            _scrollOffset = Math.Min(MaxScrollOffset(), _scrollOffset + 2);
+            var p = e.GetPosition(this);
+            if (p.Y < PadY && _scrollOffset < MaxScrollOffset())
+            {
+                _scrollOffset = Math.Min(MaxScrollOffset(), _scrollOffset + 2);
+            }
+            else if (p.Y > ActualHeight - PadY && _scrollOffset > 0)
+            {
+                _scrollOffset = Math.Max(0, _scrollOffset - 2);
+            }
+            _selEnd = PointToCell(p);
+            _hasSelection = true;
+            InvalidateVisual();
+            return;
         }
-        else if (p.Y > ActualHeight - PadY && _scrollOffset > 0)
+
+        var mode = _session.Buffer.MouseTracking;
+        if (ShouldReportMouse() &&
+            (mode == MouseTrackingMode.AnyEvent ||
+             (mode == MouseTrackingMode.Button && _mousePressed)))
         {
-            _scrollOffset = Math.Max(0, _scrollOffset - 2);
+            ReportMouseMove(e.GetPosition(this), _mousePressed ? _mouseButton : 3);
+            e.Handled = true;
         }
-        _selEnd = PointToCell(p);
-        _hasSelection = true;
-        InvalidateVisual();
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
+        if (TryReportMouseButton(MouseButton.Left, pressed: false))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!_selecting) return;
         _selecting = false;
         ReleaseMouseCapture();
@@ -107,15 +147,180 @@ public sealed partial class TerminalView
         InvalidateVisual();
     }
 
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        if (TryReportMouseButton(MouseButton.Right, pressed: false)) e.Handled = true;
+    }
+
+    protected override void OnMouseUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.ChangedButton == MouseButton.Middle &&
+            TryReportMouseButton(MouseButton.Middle, pressed: false))
+        {
+            e.Handled = true;
+        }
+    }
+
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         base.OnMouseWheel(e);
         if (_session is null) return;
+
+        if (ShouldReportMouse())
+        {
+            var cell = MouseCell(e.GetPosition(this));
+            SendMouseEvent(e.Delta > 0 ? 64 : 65, cell.Col, cell.Row, release: false, motion: false);
+            e.Handled = true;
+            return;
+        }
+
         int max = MaxScrollOffset();
         if (max <= 0) return;
         _scrollOffset = Math.Clamp(_scrollOffset + (e.Delta > 0 ? 3 : -3), 0, max);
         InvalidateVisual();
         e.Handled = true;
+    }
+
+    private bool ShouldReportMouse()
+    {
+        if (_session is null || _scrollOffset > 0) return false;
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) return false;
+        return _session.Buffer.MouseTracking != MouseTrackingMode.None;
+    }
+
+    private bool TryReportMouseButton(MouseButton button, bool pressed)
+    {
+        if (_session is null) return false;
+        int code = button switch
+        {
+            MouseButton.Left => 0,
+            MouseButton.Middle => 1,
+            MouseButton.Right => 2,
+            _ => -1
+        };
+        if (code < 0) return false;
+
+        if (pressed)
+        {
+            if (!ShouldReportMouse()) return false;
+            if (_mousePressed && _mouseButton >= 0) SendMouseRelease(_mouseButton);
+            _mousePressed = true;
+            _mouseButton = code;
+            var cell = MouseCell(Mouse.GetPosition(this));
+            SendMouseEvent(code, cell.Col, cell.Row, release: false, motion: false);
+            CaptureMouse();
+            return true;
+        }
+
+        if (!_mousePressed || _mouseButton != code) return false;
+        if (_session.Buffer.MouseTracking != MouseTrackingMode.X10)
+        {
+            var cell = MouseCell(Mouse.GetPosition(this));
+            SendMouseEvent(code, cell.Col, cell.Row, release: true, motion: false);
+        }
+        _mousePressed = false;
+        _mouseButton = -1;
+        ReleaseMouseCapture();
+        return true;
+    }
+
+    private void SendMouseRelease(int button)
+    {
+        if (_session is null) return;
+        var cell = MouseCell(Mouse.GetPosition(this));
+        SendMouseEvent(button, cell.Col, cell.Row, release: true, motion: false);
+    }
+
+    private void ReportMouseMove(Point point, int button)
+    {
+        if (_session is null) return;
+        var cell = MouseCell(point);
+        long now = Environment.TickCount64;
+        if (cell.Col == _lastMouseReportCol &&
+            cell.Row == _lastMouseReportRow &&
+            button == _lastMouseReportButton &&
+            now - _lastMouseReportAt < 40)
+        {
+            return;
+        }
+
+        _lastMouseReportCol = cell.Col;
+        _lastMouseReportRow = cell.Row;
+        _lastMouseReportButton = button;
+        _lastMouseReportAt = now;
+        SendMouseEvent(button, cell.Col, cell.Row, release: false, motion: true);
+    }
+
+    private (int Col, int Row) MouseCell(Point point)
+    {
+        if (_session is null) return (0, 0);
+        var buffer = _session.Buffer;
+        int rows = Math.Max(1, (int)VisibleRows);
+        int col = (int)Math.Floor((point.X - PadX) / _cellW);
+        int row = (int)Math.Floor((point.Y - PadY) / _cellH);
+        col = Math.Clamp(col, 0, Math.Max(0, buffer.Columns - 1));
+        row = Math.Clamp(row, 0, rows - 1);
+        return (col, row);
+    }
+
+    private void SendMouseEvent(int button, int col, int row, bool release, bool motion)
+    {
+        if (_session is null) return;
+        var buffer = _session.Buffer;
+        int modifiers = 0;
+        var current = Keyboard.Modifiers;
+        if ((current & ModifierKeys.Shift) != 0) modifiers += 4;
+        if ((current & ModifierKeys.Alt) != 0) modifiers += 8;
+        if ((current & ModifierKeys.Control) != 0) modifiers += 16;
+
+        if (buffer.MouseEncoding == MouseEncodingMode.Sgr)
+        {
+            int code = button | modifiers;
+            if (motion) code += 32;
+            string sequence = $"\x1b[<{code};{col + 1};{row + 1}{(release ? 'm' : 'M')}";
+            _session.SendBytes(Encoding.ASCII.GetBytes(sequence));
+            return;
+        }
+
+        int codeDefault = (release ? 3 : button) | modifiers;
+        if (motion) codeDefault += 32;
+        int x = Math.Clamp(col + 1, 1, 223);
+        int y = Math.Clamp(row + 1, 1, 223);
+        var bytes = new List<byte>(6) { 0x1B, 0x5B, 0x4D };
+        if (buffer.MouseEncoding == MouseEncodingMode.Utf8)
+        {
+            AppendUtf8(bytes, 32 + codeDefault);
+            AppendUtf8(bytes, 32 + x);
+            AppendUtf8(bytes, 32 + y);
+        }
+        else
+        {
+            bytes.Add((byte)(32 + codeDefault));
+            bytes.Add((byte)(32 + x));
+            bytes.Add((byte)(32 + y));
+        }
+        _session.SendBytes(bytes.ToArray());
+    }
+
+    private static void AppendUtf8(List<byte> bytes, int codePoint)
+    {
+        if (codePoint < 0x80)
+        {
+            bytes.Add((byte)codePoint);
+        }
+        else if (codePoint < 0x800)
+        {
+            bytes.Add((byte)(0xC0 | (codePoint >> 6)));
+            bytes.Add((byte)(0x80 | (codePoint & 0x3F)));
+        }
+        else
+        {
+            bytes.Add((byte)(0xE0 | (codePoint >> 12)));
+            bytes.Add((byte)(0x80 | ((codePoint >> 6) & 0x3F)));
+            bytes.Add((byte)(0x80 | (codePoint & 0x3F)));
+        }
     }
 
     public void ScrollToBottom()

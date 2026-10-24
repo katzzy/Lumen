@@ -1,8 +1,18 @@
-# Lumen Terminal 1.2.0
+# Lumen Terminal 1.3.0
 
 Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙等网络设备的串口调试。界面基于 WPF，终端使用自绘控件，串口直接调用 Win32 API；不使用 WebView、Electron 或 Tauri。
 
 ![Lumen Terminal](screenshot.png)
+
+## 1.3 更新
+
+- **XMODEM / YMODEM**：支持 XMODEM、XMODEM-1K、XMODEM-Checksum 和 YMODEM 单文件收发，带进度、重试和取消。
+- **命名管道**：可直接连接 com0com 等虚拟串口桥接的命名管道。
+- **DTR / DSR**：工具栏实时显示 DSR 输入状态，DTR/RTS 保持可切换。
+- **连接中改波特率**：无需断开串口，在工具栏选择新波特率即可立即切换。
+- **鼠标上报**：支持 X10、1000、1002、1003 跟踪模式及 SGR/UTF-8 编码；按住 Shift 仍可选择文本。
+- **80 / 132 列**：终端列宽可在自适应、80 列、132 列之间切换。
+- **F5 Break**：F5 直接发送串口 Break，Shift+F5 保留为终端 F5 功能键。
 
 ## 1.2 更新
 
@@ -15,10 +25,11 @@ Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙�
 
 ## 功能
 
-- 串口：COM 口枚举、波特率/数据位/校验/停止位/流控、DTR/RTS、Send Break（脉冲时长 10–5000 ms 可配）。
-- 终端：VT100/ANSI、10,000 行回滚、搜索、选区复制、GBK/UTF-8、实时 Hex 视图、任意字节/转义发送。
+- 串口：COM 口枚举、波特率/数据位/校验/停止位/流控、DTR/RTS/DSR、Send Break（脉冲时长 10–5000 ms 可配）、连接中切换波特率。
+- 管道：连接 Windows 命名管道（com0com 等虚拟串口桥）。
+- 终端：VT100/ANSI、10,000 行回滚、搜索、选区复制、GBK/UTF-8、实时 Hex 视图、任意字节/转义发送、鼠标上报、80/132 列宽。
 - 会话：会话分组、快速连接、手动重连、断线自动重连、USB 串口热插拔监听、单实例。
-- 运维：粘贴行/字符节流、可选等待设备回显、危险命令确认、登录后自动分页、快捷命令。
+- 运维：粘贴行/字符节流、可选等待设备回显、危险命令确认、登录后自动分页、快捷命令、XMODEM/XMODEM-1K/XMODEM-Checksum/YMODEM 文件传输。
 - 日志：自动记录、可选时间戳、原始日志开关（保留 ANSI 转义与控制字符）、按会话命名、打开日志目录。
 - 界面：深色主题、标签页、可调字号，支持 UI Automation 读取和选择终端文本。
 
@@ -46,10 +57,11 @@ Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙�
 
 ## 使用
 
-1. 解压 `Lumen-1.2.0-win-x64.zip` 到可写目录，例如 `D:\Tools\Lumen`。
+1. 解压 `Lumen-1.3.0-win-x64.zip` 到可写目录，例如 `D:\Tools\Lumen`。
 2. 运行 `Lumen.exe`。
-3. 在左侧“快速连接”选择 COM 口和波特率，点击“连接控制台”。
+3. 在左侧“快速连接”选择 COM 口和波特率，点击“连接控制台”；点击管道图标可连接命名管道。
 4. 没有设备时，可以点“打开演示会话”查看界面。
+5. 文件传输使用工具栏“传输”，选择 XMODEM / XMODEM-1K / YMODEM 后收发文件。
 
 首次启动的会话列表为空。程序目录会生成 `data` 和 `logs`（便携模式）；删除 `portable.flag` 后，配置会改用 `%APPDATA%\Lumen`。
 
@@ -70,6 +82,8 @@ Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙�
 | `Shift+PageUp` / `Shift+PageDown` | 翻看回滚缓冲 |
 | `Shift+Home` / `Shift+End` | 跳到回滚顶部 / 底部 |
 | `F11` | 最大化 / 还原 |
+| `F5` | 发送串口 Break |
+| `Shift+F5` | 发送终端 F5 功能键序列 |
 | `Ctrl+Break` | 发送串口 Break |
 
 ## 数据与日志
@@ -83,10 +97,10 @@ Lumen 是一个 Windows 串口终端，用于交换机、路由器、防火墙�
 
 ## 当前范围
 
-目前只做串口。以下功能不在 1.2 范围内：
+目前专注串口与命名管道。以下功能不在 1.3 范围内：
 
 - SSH / Telnet / SFTP、端口转发、跳板机
-- XMODEM / YMODEM / ZMODEM 文件传输
+- ZMODEM 文件传输（已支持 XMODEM / YMODEM 单文件）
 - 批量群发、分屏
 - 浅色主题、脚本引擎、插件
 
@@ -140,4 +154,4 @@ MIT，详见 [LICENSE](LICENSE)。
 
 ---
 
-Lumen Terminal 1.2.0
+Lumen Terminal 1.3.0

@@ -111,6 +111,26 @@ public sealed class SerialConnection : ITerminalTransport
         CurrentPort()?.SetRts(enabled);
     }
 
+    /// <summary>Changes the baud rate on the live port without reconnecting.</summary>
+    public bool SetBaudRate(int baudRate)
+    {
+        var port = CurrentPort();
+        if (port is null || !port.SetBaudRate(baudRate)) return false;
+        _config.BaudRate = baudRate;
+        return true;
+    }
+
+    public bool TryGetPins(out SerialPins pins)
+    {
+        var port = CurrentPort();
+        if (port is null)
+        {
+            pins = default;
+            return false;
+        }
+        return port.TryGetPins(out pins);
+    }
+
     /// <summary>Enables or disables automatic reconnect for a live connection.</summary>
     public void SetAutoReconnect(bool enabled)
     {

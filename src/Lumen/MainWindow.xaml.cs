@@ -30,6 +30,11 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<SessionProfile> _sessions;
     private readonly ICollectionView _sessionsView;
     private readonly List<TabEntry> _tabs = new();
+    private readonly ObservableCollection<int> _baudRates = new()
+    {
+        300, 1200, 2400, 4800, 9600, 19200, 38400, 57600,
+        115200, 230400, 460800, 921600
+    };
     private readonly DispatcherTimer _pollTimer;
     private readonly DispatcherTimer _deviceRefreshTimer;
     private AppSettings _settings;
@@ -37,6 +42,7 @@ public partial class MainWindow : Window
     private TabEntry? _active;
     private IntPtr _hwnd;
     private bool _suppressToggle;
+    private bool _suppressBaud;
     private CancellationTokenSource? _findSearchCts;
 
     public MainWindow(AppSettings settings, SessionStore store, string[] args)
@@ -46,6 +52,8 @@ public partial class MainWindow : Window
         _args = args;
 
         InitializeComponent();
+
+        BaudCombo.ItemsSource = _baudRates;
 
         _sessions = new ObservableCollection<SessionProfile>(_store.Sessions);
         _sessionsView = CollectionViewSource.GetDefaultView(_sessions);
@@ -170,7 +178,17 @@ public partial class MainWindow : Window
         {
             var profile = SessionProfile.CreateDefault($"{port} 控制台", "快速连接");
             profile.Id = "quick-" + port;
-            profile.Serial.PortName = port;
+            if (port.StartsWith(@"\\.\pipe\", StringComparison.OrdinalIgnoreCase) ||
+                port.StartsWith("pipe:", StringComparison.OrdinalIgnoreCase))
+            {
+                profile.TransportKind = SessionTransportKind.NamedPipe;
+                profile.PipeName = NamedPipeTransport.NormalizePipeName(port);
+                profile.Name = $"管道 · {profile.PipeName}";
+            }
+            else
+            {
+                profile.Serial.PortName = port;
+            }
             if (int.TryParse(GetArg("--baud"), out int baud)) profile.Serial.BaudRate = baud;
             ApplySettingsDefaults(profile);
             StartSession(profile, CreateTransport(profile));
@@ -185,8 +203,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private static SerialConnection CreateTransport(SessionProfile profile) =>
-        new(profile.Serial, profile.AutoReconnect);
+    private static ITerminalTransport CreateTransport(SessionProfile profile) =>
+        profile.TransportKind == SessionTransportKind.NamedPipe
+            ? new NamedPipeTransport(profile.PipeName)
+            : new SerialConnection(profile.Serial, profile.AutoReconnect);
 
     private void ApplySettingsDefaults(SessionProfile profile)
     {
@@ -223,10 +243,12 @@ public partial class MainWindow : Window
             ThroughputText.Text = "";
             CursorText.Text = "";
             LogText.Text = "○ 未记录";
+            UpdateSerialPins(null);
             return;
         }
 
         var session = _active.Session;
+        UpdateSerialPins(session);
         var buffer = session.Buffer;
         ThroughputText.Text = $"RX {FormatBytes(session.BytesReceived)}    TX {FormatBytes(session.BytesSent)}";
         CursorText.Text = $"{buffer.Columns} × {buffer.Rows}  ·  {buffer.CursorRow + 1},{buffer.CursorCol + 1}";
@@ -237,6 +259,29 @@ public partial class MainWindow : Window
         StatusDot.Background = session.IsConnected
             ? Res("Brush.Green")
             : _active.Connecting || session.IsReconnecting ? Res("Brush.Amber") : Res("Brush.Red");
+    }
+
+    private void EnsureBaudRate(int baud)
+    {
+        if (baud <= 0 || _baudRates.Contains(baud)) return;
+        int index = 0;
+        while (index < _baudRates.Count && _baudRates[index] < baud) index++;
+        _baudRates.Insert(index, baud);
+    }
+
+    private void UpdateSerialPins(TerminalSession? session)
+    {
+        if (session?.Transport is SerialConnection serial && serial.TryGetPins(out var pins))
+        {
+            DsrText.Text = pins.Dsr ? "DSR ●" : "DSR ○";
+            DsrText.Foreground = pins.Dsr ? Res("Brush.Green") : Res("Brush.TextMuted");
+            DsrText.ToolTip = $"DSR {(pins.Dsr ? "高" : "低")} · CTS {(pins.Cts ? "高" : "低")} · DCD {(pins.Carrier ? "高" : "低")}";
+            return;
+        }
+
+        DsrText.Text = "DSR —";
+        DsrText.Foreground = Res("Brush.TextMuted");
+        DsrText.ToolTip = "DSR 输入信号状态（仅串口）";
     }
 
     private static string FormatBytes(long bytes)
@@ -483,7 +528,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var busy = FindBusyTabForPort(port.PortName);
+        var busy = FindBusyTabForEndpoint(SessionTransportKind.Serial, port.PortName);
         if (busy is not null)
         {
             ActivateTab(busy);
@@ -502,11 +547,12 @@ public partial class MainWindow : Window
         StartSession(profile, CreateTransport(profile));
     }
 
-    private TabEntry? FindBusyTabForPort(string portName)
+    private TabEntry? FindBusyTabForEndpoint(SessionTransportKind kind, string endpoint)
     {
         return _tabs.FirstOrDefault(t =>
             (t.Connecting || t.Session.IsConnected || t.Session.IsReconnecting) &&
-            string.Equals(t.Profile.Serial.PortName, portName, StringComparison.OrdinalIgnoreCase));
+            t.Profile.TransportKind == kind &&
+            string.Equals(t.Profile.DisplayPort, endpoint, StringComparison.OrdinalIgnoreCase));
     }
 
     private void Reconnect_Click(object sender, RoutedEventArgs e)
@@ -515,7 +561,7 @@ public partial class MainWindow : Window
         if (tab is null || tab.Profile.Id == "demo-session") return;
 
         var profile = tab.Profile;
-        string port = profile.Serial.PortName;
+        string port = profile.DisplayPort;
         CloseTab(tab);
         SetStatus($"正在重新连接 {port}…");
         StartSession(profile, CreateTransport(profile));

@@ -39,9 +39,19 @@ public partial class SessionEditorView : UserControl
         StopBitsBox.ItemsSource = new[] { "1", "1.5", "2" };
         FlowBox.ItemsSource = new[] { "无", "RTS / CTS 硬件流控", "XON / XOFF 软件流控" };
         EncodingBox.ItemsSource = new[] { "UTF-8", "GBK", "ASCII" };
+        TransportBox.ItemsSource = new[] { "串口", "命名管道" };
+        ColumnsBox.ItemsSource = new[] { "自适应窗口", "80 列", "132 列" };
 
         NameBox.Text = profile.Name;
         GroupBox.Text = profile.Group;
+        PipeNameBox.Text = profile.PipeName;
+        TransportBox.SelectedIndex = profile.TransportKind == SessionTransportKind.NamedPipe ? 1 : 0;
+        ColumnsBox.SelectedIndex = profile.TerminalColumns switch
+        {
+            80 => 1,
+            132 => 2,
+            _ => 0
+        };
         BaudBox.Text = profile.Serial.BaudRate.ToString();
         DataBitsBox.SelectedItem = Math.Clamp(profile.Serial.DataBits, 5, 8).ToString();
         ParityBox.SelectedIndex = (int)profile.Serial.Parity;
@@ -62,6 +72,7 @@ public partial class SessionEditorView : UserControl
         LogDirBox.Text = profile.LogDirectory ?? "";
 
         LoadPorts(profile.Serial.PortName);
+        UpdateTransportFields();
         Loaded += (_, _) =>
         {
             if (isNew)
@@ -97,6 +108,21 @@ public partial class SessionEditorView : UserControl
         var selected = (PortBox.SelectedItem as SerialPortInfo)?.PortName ?? _profile.Serial.PortName;
         _ports = SerialPortEnumerator.GetPorts();
         LoadPorts(selected);
+    }
+
+    private void TransportBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateTransportFields();
+
+    private void UpdateTransportFields()
+    {
+        bool pipe = TransportBox.SelectedIndex == 1;
+        PipeNameBox.IsEnabled = pipe;
+        PortBox.IsEnabled = !pipe;
+        BaudBox.IsEnabled = !pipe;
+        DataBitsBox.IsEnabled = !pipe;
+        ParityBox.IsEnabled = !pipe;
+        StopBitsBox.IsEnabled = !pipe;
+        FlowBox.IsEnabled = !pipe;
     }
 
     private static int EncodingIndex(string encoding)
@@ -210,11 +236,28 @@ public partial class SessionEditorView : UserControl
             return;
         }
 
-        if (!int.TryParse(BaudBox.Text.Trim(), out int baud) || baud < 300 || baud > 921600)
+        bool pipeTransport = TransportBox.SelectedIndex == 1;
+        int baud = _profile.Serial.BaudRate;
+        if (pipeTransport)
+        {
+            if (int.TryParse(BaudBox.Text.Trim(), out int pipeBaud) && pipeBaud is >= 300 and <= 921600)
+            {
+                baud = pipeBaud;
+            }
+        }
+        else if (!int.TryParse(BaudBox.Text.Trim(), out baud) || baud < 300 || baud > 921600)
         {
             ErrorText.Text = "波特率需在 300 - 921600 之间";
             BaudBox.Focus();
             BaudBox.SelectAll();
+            return;
+        }
+
+        string pipeName = NamedPipeTransport.NormalizePipeName(PipeNameBox.Text);
+        if (pipeTransport && pipeName.Length == 0)
+        {
+            ErrorText.Text = "请输入命名管道名称";
+            PipeNameBox.Focus();
             return;
         }
 
@@ -274,9 +317,12 @@ public partial class SessionEditorView : UserControl
         updated.Name = name;
         updated.Group = string.IsNullOrWhiteSpace(GroupBox.Text) ? "我的设备" : GroupBox.Text.Trim();
         updated.VendorId = (VendorBox.SelectedItem as VendorProfile)?.Id ?? "auto";
+        updated.TransportKind = pipeTransport ? SessionTransportKind.NamedPipe : SessionTransportKind.Serial;
+        updated.PipeName = pipeTransport ? pipeName : "";
         updated.Serial = serial;
         updated.Encoding = EncodingName(EncodingBox.SelectedIndex);
         updated.FontSize = fontSize;
+        updated.TerminalColumns = ColumnsBox.SelectedIndex switch { 1 => 80, 2 => 132, _ => 0 };
         updated.LogDirectory = string.IsNullOrWhiteSpace(LogDirBox.Text) ? null : LogDirBox.Text.Trim();
         updated.AutoLog = AutoLogCheck.IsChecked == true;
         updated.AutoPaging = AutoPagingCheck.IsChecked == true;

@@ -47,6 +47,13 @@ public sealed partial class TerminalView : FrameworkElement
     private readonly Dictionary<int, List<int>> _matchesByLine = new();
     private int _matchIndex = -1;
     private int _searchVersion;
+    private int _fixedColumns;
+    private bool _mousePressed;
+    private int _mouseButton = -1;
+    private long _lastMouseReportAt;
+    private int _lastMouseReportCol = -1;
+    private int _lastMouseReportRow = -1;
+    private int _lastMouseReportButton = -1;
 
     public TerminalView()
     {
@@ -189,6 +196,19 @@ public sealed partial class TerminalView : FrameworkElement
         }
     }
 
+    /// <summary>0 follows the window width; 80 or 132 pins the terminal columns.</summary>
+    public int FixedColumns
+    {
+        get => _fixedColumns;
+        set
+        {
+            int columns = value is 80 or 132 ? value : 0;
+            if (columns == _fixedColumns) return;
+            _fixedColumns = columns;
+            RequestRender();
+        }
+    }
+
     public bool HasSelection => _hasSelection && !SelectionIsEmpty();
 
     public event Action<string>? PasteRequested;
@@ -327,6 +347,12 @@ public sealed partial class TerminalView : FrameworkElement
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
+        if (e.Key == Key.F5 && !shift)
+        {
+            _ = _session.SendBreakAsync();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Cancel || (e.Key == Key.Pause && ctrl))
         {
             _ = _session.SendBreakAsync();

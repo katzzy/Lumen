@@ -298,6 +298,38 @@ internal sealed class Win32SerialPort : IDisposable
     public bool Dtr => _dtr;
     public bool Rts => _rts;
 
+    public bool SetBaudRate(int baudRate)
+    {
+        if (baudRate < 300 || baudRate > 921600) return false;
+        lock (_writeLock)
+        {
+            IntPtr handle;
+            lock (_stateLock) handle = _handle;
+            if (handle == InvalidHandleValue || handle == IntPtr.Zero) return false;
+
+            var dcb = new Dcb { DCBlength = (uint)Marshal.SizeOf<Dcb>() };
+            if (!GetCommState(handle, ref dcb)) return false;
+            dcb.BaudRate = (uint)baudRate;
+            return SetCommState(handle, ref dcb);
+        }
+    }
+
+    public bool TryGetPins(out SerialPins pins)
+    {
+        pins = default;
+        IntPtr handle;
+        lock (_stateLock) handle = _handle;
+        if (handle == InvalidHandleValue || handle == IntPtr.Zero) return false;
+        if (!GetCommModemStatus(handle, out uint status)) return false;
+
+        pins = new SerialPins(
+            Dsr: (status & 0x0020) != 0,
+            Cts: (status & 0x0010) != 0,
+            Ring: (status & 0x0040) != 0,
+            Carrier: (status & 0x0080) != 0);
+        return true;
+    }
+
     public void Dispose()
     {
         Thread? thread;
@@ -425,6 +457,10 @@ internal sealed class Win32SerialPort : IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCommModemStatus(IntPtr hFile, out uint lpModemStat);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool EscapeCommFunction(IntPtr hFile, uint dwFunc);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -435,6 +471,8 @@ internal sealed class Win32SerialPort : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CancelIoEx(IntPtr hFile, IntPtr lpOverlapped);
 }
+
+public readonly record struct SerialPins(bool Dsr, bool Cts, bool Ring, bool Carrier);
 
 public sealed class SerialException : Exception
 {

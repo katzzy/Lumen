@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Lumen.Models;
 using Lumen.Services;
+using Lumen.Transfer;
 
 namespace Lumen.Terminal;
 
@@ -26,6 +27,8 @@ public sealed class TerminalSession : IDisposable
     private bool _pagingSent;
     private bool _disposed;
     private CancellationTokenSource? _pasteCts;
+    private TransportTransferChannel? _transferChannel;
+    private CancellationTokenSource? _transferCts;
     private readonly object _echoLock = new();
     private readonly StringBuilder _echo = new();
 
@@ -67,6 +70,7 @@ public sealed class TerminalSession : IDisposable
     public VendorProfile? Vendor => _vendor;
     public bool IsConnected { get; private set; }
     public bool IsPasting { get; private set; }
+    public bool IsTransferActive => Volatile.Read(ref _transferChannel) is not null;
     public string Title { get; private set; } = "";
     public string? LogPath => _log.FilePath;
     public bool IsLogging => _log.IsActive;
@@ -144,6 +148,12 @@ public sealed class TerminalSession : IDisposable
     {
         if (_disposed) return;
         Hex.Append(data.Span);
+        var transfer = Volatile.Read(ref _transferChannel);
+        if (transfer is not null)
+        {
+            transfer.Push(data.Span);
+            return;
+        }
         Feed(data);
     }
 
@@ -294,6 +304,7 @@ public sealed class TerminalSession : IDisposable
         }
         if (!IsConnected) return;
         IsConnected = false;
+        AbortFileTransfer();
         _log.Stop();
         var hint = _profile.AutoReconnect ? "，正在自动重连…" : "";
         InjectSystem($"连接已断开：{reason}{hint}", true);
@@ -542,10 +553,63 @@ public sealed class TerminalSession : IDisposable
         PostUpdated();
     }
 
+    public async Task RunFileTransferAsync(
+        TransferOptions options,
+        IProgress<TransferProgress>? progress,
+        CancellationToken token)
+    {
+        if (_disposed || !IsConnected)
+            throw new InvalidOperationException("会话未连接，无法传输文件。");
+
+        var channel = new TransportTransferChannel(_transport);
+        if (Interlocked.CompareExchange(ref _transferChannel, channel, null) is not null)
+        {
+            channel.Dispose();
+            throw new InvalidOperationException("已有文件传输正在进行。");
+        }
+
+        _decoder = _encoding.GetDecoder();
+        ClearEchoBuffer();
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(token);
+        _transferCts = linked;
+        try
+        {
+            await FileTransferEngine.RunAsync(options, channel, progress, linked.Token)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _transferChannel, null);
+            if (ReferenceEquals(_transferCts, linked)) _transferCts = null;
+            linked.Dispose();
+
+            // Hand any trailing prompt bytes back to the VT parser, then reset
+            // decoder state so a mid-character cancellation cannot corrupt output.
+            var remaining = channel.TakeRemaining();
+            channel.Dispose();
+            _decoder = _encoding.GetDecoder();
+            if (remaining.Length > 0 && !_disposed) Feed(remaining);
+        }
+    }
+
+    public void AbortFileTransfer()
+    {
+        try
+        {
+            _transferCts?.Cancel();
+        }
+        catch
+        {
+            // ignore
+        }
+        _transferChannel?.Abort();
+    }
+
     public void Disconnect()
     {
         if (_disposed || !IsConnected) return;
         IsConnected = false;
+        AbortFileTransfer();
         _log.Stop();
         try
         {
@@ -565,6 +629,7 @@ public sealed class TerminalSession : IDisposable
         _disposed = true;
         IsConnected = false;
         CancelPaste();
+        AbortFileTransfer();
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
         _transport.Reconnected -= OnReconnected;

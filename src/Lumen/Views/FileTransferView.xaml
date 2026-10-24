@@ -1,0 +1,156 @@
+<UserControl x:Class="Lumen.Views.FileTransferView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="600"
+             MaxHeight="720"
+             Focusable="True"
+             KeyDown="Root_KeyDown">
+    <Border Background="{StaticResource Brush.Surface}"
+            BorderBrush="{StaticResource Brush.Border}"
+            BorderThickness="1"
+            CornerRadius="14">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="40" ShadowDepth="14" Opacity="0.45" Color="Black" />
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="64" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="22,0,12,0">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="文件传输"
+                               FontFamily="{StaticResource Font.Display}"
+                               FontSize="17"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="通过串口使用 XMODEM / YMODEM 收发文件"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Button HorizontalAlignment="Right"
+                        Style="{StaticResource BtnIcon}"
+                        Content="&#xE711;"
+                        Width="30"
+                        Height="30"
+                        FontSize="10"
+                        ToolTip="关闭" AutomationProperties.Name="关闭文件传输"
+                        Click="Cancel_Click" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,0,22,0">
+                <StackPanel Margin="0,2,0,16">
+                    <TextBlock Text="传输方式" Style="{StaticResource Text.Section}" Margin="0,4,0,8" />
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="协议" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <ComboBox x:Name="ProtocolBox" Height="34" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="方向" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <ComboBox x:Name="DirectionBox" Height="34"
+                                      SelectionChanged="DirectionBox_SelectionChanged" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="本地文件" Style="{StaticResource Text.Section}" Margin="0,10,0,8" />
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="6" />
+                            <ColumnDefinition Width="72" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PathBox" Height="34" VerticalContentAlignment="Top" />
+                        <Button Grid.Column="2"
+                                Content="浏览…"
+                                Style="{StaticResource BtnSecondary}"
+                                Height="34"
+                                Padding="8,0"
+                                Click="Browse_Click" />
+                    </Grid>
+                    <TextBlock x:Name="HintText"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               TextWrapping="Wrap"
+                               Margin="2,0,0,10" />
+
+                    <TextBlock Text="进度" Style="{StaticResource Text.Section}" Margin="0,8,0,8" />
+                    <Border Background="{StaticResource Brush.BgDeep}"
+                            BorderBrush="{StaticResource Brush.Border}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12">
+                        <StackPanel>
+                            <TextBlock x:Name="StatusText"
+                                       Text="准备就绪"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Brush.TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <ProgressBar x:Name="Progress"
+                                         Height="8"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Value="0"
+                                         Foreground="{StaticResource Brush.Accent}"
+                                         Background="{StaticResource Brush.SurfaceActive}"
+                                         BorderThickness="0"
+                                         Margin="0,10,0,0" />
+                            <Grid Margin="0,8,0,0">
+                                <TextBlock x:Name="ByteText"
+                                           FontFamily="{StaticResource Font.Mono}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource Brush.TextMuted}" />
+                                <TextBlock x:Name="PercentText"
+                                           HorizontalAlignment="Right"
+                                           FontFamily="{StaticResource Font.Mono}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource Brush.TextSecondary}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="传输期间终端解析会暂停，完成后自动恢复。请先让设备进入 XMODEM/YMODEM 接收或发送状态。"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.TextMuted}"
+                               TextWrapping="Wrap"
+                               Margin="2,10,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2"
+                    BorderBrush="{StaticResource Brush.BorderSoft}"
+                    BorderThickness="0,1,0,0"
+                    Padding="22,12">
+                <Grid>
+                    <TextBlock x:Name="ErrorText"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{StaticResource Brush.Red}"
+                               MaxWidth="300"
+                               TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="CancelButton"
+                                Content="关闭"
+                                Style="{StaticResource BtnSecondary}"
+                                Padding="18,7"
+                                Click="Cancel_Click" />
+                        <Button x:Name="StartButton"
+                                Content="开始发送"
+                                Style="{StaticResource BtnPrimary}"
+                                Padding="20,7"
+                                Margin="8,0,0,0"
+                                Click="Start_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

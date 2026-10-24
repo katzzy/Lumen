@@ -2,6 +2,12 @@ namespace Lumen.Models;
 
 using System.Text.Json.Serialization;
 
+public enum SessionTransportKind
+{
+    Serial = 0,
+    NamedPipe = 1
+}
+
 public sealed class QuickCommand
 {
     public string Name { get; set; } = "";
@@ -17,9 +23,13 @@ public sealed class SessionProfile
     public string Name { get; set; } = "新会话";
     public string Group { get; set; } = "默认分组";
     public string VendorId { get; set; } = "auto";
+    public SessionTransportKind TransportKind { get; set; } = SessionTransportKind.Serial;
+    public string PipeName { get; set; } = "";
     public SerialConfig Serial { get; set; } = new();
     public string Encoding { get; set; } = "utf-8";
     public double FontSize { get; set; } = 14;
+    /// <summary>0 = fit the window, otherwise 80 or 132 fixed columns.</summary>
+    public int TerminalColumns { get; set; }
     public bool AutoLog { get; set; } = true;
     public bool AutoPaging { get; set; } = true;
     public string? LogDirectory { get; set; }
@@ -48,8 +58,12 @@ public sealed class SessionProfile
     }
 
     [JsonIgnore]
-    public string DisplayPort => Serial.PortName;
+    public string DisplayPort => TransportKind == SessionTransportKind.NamedPipe
+        ? PipeName
+        : Serial.PortName;
 
     [JsonIgnore]
-    public string DisplaySummary => $"{Serial.PortName} · {Serial.BaudRate}";
+    public string DisplaySummary => TransportKind == SessionTransportKind.NamedPipe
+        ? $"管道 · {PipeName}"
+        : $"{Serial.PortName} · {Serial.BaudRate}";
 }

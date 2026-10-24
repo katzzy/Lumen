@@ -61,7 +61,12 @@ public sealed partial class TerminalView
         var buffer = _session.Buffer;
         if (ActualWidth < 60 || ActualHeight < 40) return;
 
-        int cols = Math.Max(20, (int)((ActualWidth - PadX * 2) / _cellW));
+        int requested = buffer.PreferredColumns is 80 or 132 ? buffer.PreferredColumns : 0;
+        int cols = _fixedColumns > 0
+            ? _fixedColumns
+            : requested > 0
+                ? requested
+                : Math.Max(20, (int)((ActualWidth - PadX * 2) / _cellW));
         int rows = Math.Max(3, (int)((ActualHeight - PadY * 2) / _cellH));
         lock (buffer.SyncRoot)
         {

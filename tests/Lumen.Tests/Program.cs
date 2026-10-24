@@ -2,7 +2,9 @@ using Lumen.Models;
 using Lumen.Serial;
 using Lumen.Services;
 using Lumen.Terminal;
+using Lumen.Transfer;
 using System.IO;
+using System.IO.Pipes;
 using System.Text;
 using System.Windows;
 
@@ -209,6 +211,117 @@ finally
     if (File.Exists(rawLogPath)) File.Delete(rawLogPath);
 }
 
+// XMODEM / XMODEM-1K / YMODEM loopback round trips
+void TransferRoundTrip(TransferProtocol protocol, int size, string name)
+{
+    string source = Path.Combine(Environment.CurrentDirectory, $"lumen-send-{Guid.NewGuid():N}.bin");
+    string target = Path.Combine(Environment.CurrentDirectory, $"lumen-recv-{Guid.NewGuid():N}.bin");
+    try
+    {
+        var data = new byte[size];
+        new Random(1234567 + size).NextBytes(data);
+        File.WriteAllBytes(source, data);
+
+        var sender = new LoopChannel();
+        var receiver = new LoopChannel();
+        sender.Connect(receiver);
+        receiver.Connect(sender);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var send = FileTransferEngine.RunAsync(
+            new TransferOptions(protocol, TransferDirection.Send, source), sender, null, cts.Token);
+        var receive = FileTransferEngine.RunAsync(
+            new TransferOptions(protocol, TransferDirection.Receive, target), receiver, null, cts.Token);
+        Task.WhenAll(send, receive).GetAwaiter().GetResult();
+        bool equal = File.Exists(target) && File.ReadAllBytes(target).SequenceEqual(data);
+        Check($"{name} round trip", equal,
+            equal ? "" : $"expected={size} actual={(File.Exists(target) ? new FileInfo(target).Length : -1)}");
+    }
+    catch (Exception ex)
+    {
+        Check($"{name} round trip", false, ex.Message);
+    }
+    finally
+    {
+        if (File.Exists(source)) File.Delete(source);
+        if (File.Exists(target)) File.Delete(target);
+    }
+}
+
+TransferRoundTrip(TransferProtocol.Xmodem, 512, "xmodem");
+TransferRoundTrip(TransferProtocol.Xmodem1K, 2048, "xmodem-1k");
+TransferRoundTrip(TransferProtocol.XmodemChecksum, 512, "xmodem-checksum");
+TransferRoundTrip(TransferProtocol.Ymodem, 2500, "ymodem");
+
+// Mouse reporting modes
+var mouseBuffer = new ScreenBuffer(80, 24);
+var mouseParser = new VtParser(mouseBuffer);
+mouseParser.Parse("\x1b[?1002h\x1b[?1006h");
+Check("mouse button sgr mode",
+    mouseBuffer.MouseTracking == MouseTrackingMode.Button &&
+    mouseBuffer.MouseEncoding == MouseEncodingMode.Sgr,
+    $"{mouseBuffer.MouseTracking}/{mouseBuffer.MouseEncoding}");
+mouseParser.Parse("\x1b[?1002l\x1b[?1006l");
+Check("mouse mode reset",
+    mouseBuffer.MouseTracking == MouseTrackingMode.None &&
+    mouseBuffer.MouseEncoding == MouseEncodingMode.Default,
+    $"{mouseBuffer.MouseTracking}/{mouseBuffer.MouseEncoding}");
+mouseParser.Parse("\x1b[?9h");
+Check("mouse x10 mode", mouseBuffer.MouseTracking == MouseTrackingMode.X10, mouseBuffer.MouseTracking.ToString());
+mouseParser.Parse("\x1b[?3h");
+Check("deccolm 132", mouseBuffer.PreferredColumns == 132, mouseBuffer.PreferredColumns.ToString());
+mouseParser.Parse("\x1b[?3l");
+Check("deccolm 80", mouseBuffer.PreferredColumns == 80, mouseBuffer.PreferredColumns.ToString());
+
+// Named pipe transport
+Check("named pipe normalize",
+    NamedPipeTransport.NormalizePipeName(@"\\.\pipe\com_1") == "com_1" &&
+    NamedPipeTransport.NormalizePipeName("pipe:com_2") == "com_2");
+string pipeName = "lumen-test-" + Guid.NewGuid().ToString("N");
+var pipeServer = new NamedPipeServerStream(
+    pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+var pipeTransport = new NamedPipeTransport(pipeName);
+try
+{
+    var pipeReceived = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+    pipeTransport.DataReceived += data => pipeReceived.TrySetResult(data.ToArray());
+    var openTask = pipeTransport.OpenAsync();
+    var acceptTask = pipeServer.WaitForConnectionAsync();
+    Task.WhenAll(openTask, acceptTask).GetAwaiter().GetResult();
+
+    pipeServer.WriteByte(0xA5);
+    pipeServer.Flush();
+    bool pipeRx = pipeReceived.Task.Wait(3000) &&
+                  pipeReceived.Task.Result.Length == 1 &&
+                  pipeReceived.Task.Result[0] == 0xA5;
+    Check("named pipe receive", pipeRx);
+
+    var pipeRead = Task.Run(() =>
+    {
+        var buffer = new byte[2];
+        int read = 0;
+        while (read < 2)
+        {
+            int n = pipeServer.Read(buffer, read, 2 - read);
+            if (n <= 0) break;
+            read += n;
+        }
+        return buffer;
+    });
+    pipeTransport.Write(new byte[] { 0x5A, 0x6B });
+    bool pipeTx = pipeRead.Wait(3000) &&
+                  pipeRead.Result[0] == 0x5A && pipeRead.Result[1] == 0x6B;
+    Check("named pipe send", pipeTx);
+}
+catch (Exception ex)
+{
+    Check("named pipe transport", false, ex.Message);
+}
+finally
+{
+    pipeTransport.Dispose();
+    pipeServer.Dispose();
+}
+
 // XAML smoke test: load every overlay view so broken resources or bindings fail here.
 Exception? uiError = null;
 var uiThread = new Thread(() =>
@@ -228,6 +341,12 @@ var uiThread = new Thread(() =>
         _ = new Lumen.Views.SendBytesView(Encoding.UTF8, connected: true);
         _ = new Lumen.Views.SettingsView(new AppSettings());
         _ = new Lumen.Views.SessionEditorView(SessionProfile.CreateDefault(), new List<SerialPortInfo>(), isNew: true);
+        _ = new Lumen.Views.NamedPipeConnectView();
+        using (var demoSpan = new TerminalSession(
+                   SessionProfile.CreateDefault("ui transfer", "ui"), new DemoTransport(), new AppSettings()))
+        {
+            _ = new Lumen.Views.FileTransferView(demoSpan, connected: true);
+        }
         _ = new Lumen.Controls.HexView();
         app.Shutdown();
     }
@@ -249,3 +368,42 @@ else
 
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+sealed class LoopChannel : ITransferChannel
+{
+    private readonly object _gate = new();
+    private readonly Queue<byte> _queue = new();
+    private readonly SemaphoreSlim _available = new(0);
+    private LoopChannel? _peer;
+
+    public void Connect(LoopChannel peer) => _peer = peer;
+
+    public Task WriteAsync(ReadOnlyMemory<byte> data, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var peer = _peer ?? throw new IOException("loop channel not connected");
+        peer.Push(data.Span);
+        return Task.CompletedTask;
+    }
+
+    public async Task<int> ReadByteAsync(int timeoutMs, CancellationToken token)
+    {
+        if (!await _available.WaitAsync(Math.Max(1, timeoutMs), token))
+        {
+            return -1;
+        }
+        lock (_gate)
+        {
+            return _queue.Count > 0 ? _queue.Dequeue() : -1;
+        }
+    }
+
+    private void Push(ReadOnlySpan<byte> data)
+    {
+        lock (_gate)
+        {
+            foreach (byte value in data) _queue.Enqueue(value);
+        }
+        _available.Release(data.Length);
+    }
+}

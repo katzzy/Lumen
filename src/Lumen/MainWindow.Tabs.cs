@@ -41,7 +41,8 @@ public partial class MainWindow
         {
             Session = session,
             TerminalFontSize = profile.FontSize > 0 ? profile.FontSize : _settings.FontSize,
-            TerminalFontFamily = _settings.FontFamily
+            TerminalFontFamily = _settings.FontFamily,
+            FixedColumns = profile.TerminalColumns
         };
         tab.View = view;
 
@@ -267,7 +268,12 @@ public partial class MainWindow
         if (tab.HexMode) tab.HexView.Focus();
         else tab.View.Focus();
         HideFind();
-        if (tab.Session.IsConnected) SetStatus($"已连接 {tab.Profile.Serial.PortName} · {tab.Profile.Serial.BaudRate}");
+        if (tab.Session.IsConnected)
+        {
+            SetStatus(tab.Profile.TransportKind == SessionTransportKind.NamedPipe
+                ? $"已连接命名管道 {tab.Profile.PipeName}"
+                : $"已连接 {tab.Profile.Serial.PortName} · {tab.Profile.Serial.BaudRate}");
+        }
     }
 
     private void UpdateTabVisual(TabEntry tab)
@@ -299,7 +305,10 @@ public partial class MainWindow
             : tab.Connecting
                 ? "连接中…"
                 : tab.Session.IsReconnecting ? "自动重连中…" : "未连接";
-        return $"{vendorName} · {s.PortName} · {s.BaudRate} · {s.DataBits}{ParityLetter(s.Parity)}{StopLetter(s.StopBits)} · {state}";
+        var endpoint = tab.Profile.TransportKind == SessionTransportKind.NamedPipe
+            ? $"管道 {tab.Profile.PipeName}"
+            : $"{s.PortName} · {s.BaudRate} · {s.DataBits}{ParityLetter(s.Parity)}{StopLetter(s.StopBits)}";
+        return $"{vendorName} · {endpoint} · {state}";
     }
 
     private static string ParityLetter(SerialParity parity) => parity switch
@@ -328,14 +337,17 @@ public partial class MainWindow
             ? Res("Brush.Green")
             : has ? Res("Brush.Amber") : Res("Brush.TextMuted");
         SendBytesButton.IsEnabled = connected;
+        TransferButton.IsEnabled = connected && session?.IsTransferActive != true;
         ActiveTitle.Text = _active?.Profile.Name ?? "未连接";
         ActiveSubtitle.Text = _active is null
             ? "选择左侧会话，或使用快速连接"
             : BuildSubtitle(_active);
+        ActiveSubtitle.ToolTip = ActiveSubtitle.Text;
 
-        BreakButton.IsEnabled = connected;
+        BreakButton.IsEnabled = connected && session?.Transport is not NamedPipeTransport;
         ReconnectButton.IsEnabled = has && _active?.Profile.Id != "demo-session";
         HexToggle.IsEnabled = has;
+        ColumnsButton.IsEnabled = has;
         LogButton.IsEnabled = has;
         LogFolderButton.IsEnabled = has;
         QuickCommandButton.IsEnabled = has;
@@ -350,10 +362,23 @@ public partial class MainWindow
         RtsToggle.IsChecked = serial?.Rts ?? false;
         _suppressToggle = false;
 
+        BaudCombo.IsEnabled = connected && serial is not null;
+        int baud = _active?.Profile.Serial.BaudRate ?? 9600;
+        EnsureBaudRate(baud);
+        _suppressBaud = true;
+        BaudCombo.SelectedItem = baud;
+        _suppressBaud = false;
+
         LogButton.Content = session?.IsLogging == true ? "停止日志" : "日志";
         _suppressToggle = true;
         HexToggle.IsChecked = _active?.HexMode == true;
         _suppressToggle = false;
+        ColumnsButton.Content = _active?.Profile.TerminalColumns switch
+        {
+            80 => "80",
+            132 => "132",
+            _ => "列宽"
+        };
         EncodingText.Text = _active?.Profile.Encoding.ToUpperInvariant() ?? "UTF-8";
         Title = _active is null ? "Lumen Terminal" : $"Lumen Terminal — {_active.Profile.Name}";
     }

@@ -119,6 +119,43 @@ public partial class MainWindow
         return string.Join(Environment.NewLine, lines);
     }
 
+    private void NamedPipe_Click(object sender, RoutedEventArgs e)
+    {
+        var view = new NamedPipeConnectView();
+        view.ConnectRequested += name =>
+        {
+            HideOverlay();
+            ConnectNamedPipe(name);
+        };
+        view.Cancelled += HideOverlay;
+        ShowOverlay(view);
+    }
+
+    private void ConnectNamedPipe(string pipeName)
+    {
+        pipeName = NamedPipeTransport.NormalizePipeName(pipeName);
+        if (pipeName.Length == 0)
+        {
+            SetStatus("命名管道名称不能为空", true);
+            return;
+        }
+
+        var busy = FindBusyTabForEndpoint(SessionTransportKind.NamedPipe, pipeName);
+        if (busy is not null)
+        {
+            ActivateTab(busy);
+            SetStatus($"命名管道 {pipeName} 已在标签中打开");
+            return;
+        }
+
+        var profile = SessionProfile.CreateDefault($"管道 · {pipeName}", "快速连接");
+        profile.Id = $"pipe-{pipeName}";
+        profile.TransportKind = SessionTransportKind.NamedPipe;
+        profile.PipeName = pipeName;
+        ApplySettingsDefaults(profile);
+        StartSession(profile, CreateTransport(profile));
+    }
+
     private void Break_Click(object sender, RoutedEventArgs e)
     {
         if (_active is null) return;
@@ -165,7 +202,60 @@ public partial class MainWindow
         ShowOverlay(view);
     }
 
+    private void FileTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        var tab = _active;
+        if (tab is null || !tab.Session.IsConnected)
+        {
+            SetStatus("会话未连接，无法传输文件", true);
+            return;
+        }
+        if (tab.Session.IsTransferActive)
+        {
+            SetStatus("已有文件传输正在进行", true);
+            return;
+        }
+
+        var view = new FileTransferView(tab.Session, tab.Session.IsConnected);
+        view.StatusMessage += message => SetStatus(message);
+        view.Cancelled += HideOverlay;
+        ShowOverlay(view);
+    }
+
     private void HexToggle_Click(object sender, RoutedEventArgs e) => ToggleHexMode();
+
+    private void Columns_Click(object sender, RoutedEventArgs e)
+    {
+        var tab = _active;
+        if (tab is null) return;
+        ApplyColumns(tab.Profile.TerminalColumns switch
+        {
+            0 => 80,
+            80 => 132,
+            _ => 0
+        });
+    }
+
+    private void ColumnsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string value } || !int.TryParse(value, out int columns)) return;
+        ApplyColumns(columns is 80 or 132 ? columns : 0);
+    }
+
+    private void ApplyColumns(int columns)
+    {
+        var tab = _active;
+        if (tab is null) return;
+        columns = columns is 80 or 132 ? columns : 0;
+        tab.Profile.TerminalColumns = columns;
+        tab.Session.Profile.TerminalColumns = columns;
+        tab.View.FixedColumns = columns;
+        if (_sessions.Contains(tab.Profile)) _store.Update(tab.Profile);
+        UpdateToolbar();
+        SetStatus(columns == 0
+            ? "终端列宽已设为自适应窗口"
+            : $"终端列宽已设为 {columns} 列");
+    }
 
     private void Log_Click(object sender, RoutedEventArgs e)
     {
@@ -332,6 +422,61 @@ public partial class MainWindow
         if (_suppressToggle || _active?.Session.Transport is not SerialConnection serial) return;
         serial.SetRts(RtsToggle.IsChecked == true);
         SetStatus(RtsToggle.IsChecked == true ? "RTS 已置位" : "RTS 已复位");
+    }
+
+    private void BaudCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressBaud || BaudCombo.SelectedItem is not int baud) return;
+        ApplyLiveBaud(baud);
+    }
+
+    private void ApplyLiveBaud(int baud)
+    {
+        var tab = _active;
+        if (tab is null || tab.Session.Transport is not SerialConnection serial || !tab.Session.IsConnected)
+        {
+            RevertBaudSelection();
+            SetStatus("当前会话不是已连接的串口，无法修改波特率", true);
+            return;
+        }
+
+        if (baud < 300 || baud > 921600)
+        {
+            RevertBaudSelection();
+            SetStatus("波特率需在 300 - 921600 之间", true);
+            return;
+        }
+
+        if (baud == tab.Profile.Serial.BaudRate)
+        {
+            RevertBaudSelection();
+            return;
+        }
+
+        if (!serial.SetBaudRate(baud))
+        {
+            RevertBaudSelection();
+            SetStatus("切换波特率失败，请检查串口连接", true);
+            return;
+        }
+
+        tab.Profile.Serial.BaudRate = baud;
+        tab.Session.Profile.Serial.BaudRate = baud;
+        if (_sessions.Contains(tab.Profile)) _store.Update(tab.Profile);
+        ActiveSubtitle.Text = BuildSubtitle(tab);
+        SetStatus($"波特率已切换为 {baud} baud");
+        _suppressBaud = true;
+        BaudCombo.SelectedItem = baud;
+        _suppressBaud = false;
+    }
+
+    private void RevertBaudSelection()
+    {
+        int baud = _active?.Profile.Serial.BaudRate ?? 9600;
+        EnsureBaudRate(baud);
+        _suppressBaud = true;
+        BaudCombo.SelectedItem = baud;
+        _suppressBaud = false;
     }
 
     private void QuickCommands_Click(object sender, RoutedEventArgs e)

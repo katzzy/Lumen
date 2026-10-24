@@ -13,6 +13,9 @@ public sealed partial class VtParser
                 case 1:
                     _b.AppCursorKeys = enabled;
                     break;
+                case 3:
+                    _b.PreferredColumns = enabled ? 132 : 80;
+                    break;
                 case 6:
                     _b.OriginMode = enabled;
                     _b.SetCursor(0, 0);
@@ -41,11 +44,23 @@ public sealed partial class VtParser
                 case 2004:
                     _b.BracketedPaste = enabled;
                     break;
+                case 9:
+                    _b.MouseTracking = enabled ? MouseTrackingMode.X10 : MouseTrackingMode.None;
+                    break;
                 case 1000:
+                    _b.MouseTracking = enabled ? MouseTrackingMode.Normal : MouseTrackingMode.None;
+                    break;
                 case 1002:
+                    _b.MouseTracking = enabled ? MouseTrackingMode.Button : MouseTrackingMode.None;
+                    break;
                 case 1003:
+                    _b.MouseTracking = enabled ? MouseTrackingMode.AnyEvent : MouseTrackingMode.None;
+                    break;
                 case 1005:
+                    _b.MouseEncoding = enabled ? MouseEncodingMode.Utf8 : MouseEncodingMode.Default;
+                    break;
                 case 1006:
+                    _b.MouseEncoding = enabled ? MouseEncodingMode.Sgr : MouseEncodingMode.Default;
                     break;
             }
         }
@@ -71,6 +86,8 @@ public sealed partial class VtParser
         _b.OriginMode = false;
         _b.AppCursorKeys = false;
         _b.CursorVisible = true;
+        _b.MouseTracking = MouseTrackingMode.None;
+        _b.MouseEncoding = MouseEncodingMode.Default;
         _b.SetScrollRegion(0, _b.Rows - 1);
         _b.SetCursor(0, 0);
     }

@@ -95,7 +95,7 @@ public partial class MainWindow
         if (query.Length == 0) return true;
         return profile.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                || profile.Group.Contains(query, StringComparison.OrdinalIgnoreCase)
-               || profile.Serial.PortName.Contains(query, StringComparison.OrdinalIgnoreCase);
+               || profile.DisplayPort.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
@@ -153,6 +153,9 @@ public partial class MainWindow
                 tab.Profile.EchoTimeoutMs = updated.EchoTimeoutMs;
                 tab.Profile.RawLog = updated.RawLog;
                 tab.Profile.AutoReconnect = updated.AutoReconnect;
+                tab.Profile.TransportKind = updated.TransportKind;
+                tab.Profile.PipeName = updated.PipeName;
+                tab.Profile.TerminalColumns = updated.TerminalColumns;
                 tab.Profile.Serial.BreakDurationMs = updated.Serial.BreakDurationMs;
                 tab.Profile.LogDirectory = updated.LogDirectory;
                 tab.Profile.ConfirmDangerousPaste = updated.ConfirmDangerousPaste;
@@ -165,11 +168,15 @@ public partial class MainWindow
                 tab.Session.Profile.RawLog = updated.RawLog;
                 tab.Session.Profile.AutoLog = updated.AutoLog;
                 tab.Session.Profile.AutoReconnect = updated.AutoReconnect;
+                tab.Session.Profile.TransportKind = updated.TransportKind;
+                tab.Session.Profile.PipeName = updated.PipeName;
+                tab.Session.Profile.TerminalColumns = updated.TerminalColumns;
                 tab.Session.Profile.Serial.BreakDurationMs = updated.Serial.BreakDurationMs;
                 if (tab.Session.Transport is SerialConnection serial) serial.SetAutoReconnect(updated.AutoReconnect);
 
                 tab.TitleText.Text = updated.Name;
                 tab.View.TerminalFontSize = updated.FontSize;
+                tab.View.FixedColumns = updated.TerminalColumns;
                 tab.HexView.HexFontSize = Math.Max(10, updated.FontSize - 1.5);
                 UpdateTabVisual(tab);
                 if (ReferenceEquals(_active, tab))
@@ -182,7 +189,7 @@ public partial class MainWindow
             SetStatus(isNew
                 ? $"已创建会话：{updated.Name}"
                 : tab is not null
-                    ? $"已保存会话：{updated.Name}（串口参数、编码与初始化命令将在重新连接后生效）"
+                    ? $"已保存会话：{updated.Name}（连接参数、编码与初始化命令将在重新连接后生效）"
                     : $"已保存会话：{updated.Name}");
         };
         view.Cancelled += HideOverlay;
