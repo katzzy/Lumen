@@ -323,7 +323,7 @@
                                         <TextBlock Text="设置" Margin="8,0,0,0" FontSize="12" />
                                     </StackPanel>
                                 </Button>
-                                <TextBlock Text="Lumen 1.1"
+                                <TextBlock Text="Lumen 1.2"
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            FontSize="10"
@@ -399,8 +399,18 @@
                                 <Button x:Name="BreakButton"
                                         Content="Break"
                                         Style="{StaticResource BtnTool}"
-                                        ToolTip="发送 Break（交换机进入 ROMMON / 密码恢复）"
-                                        Click="Break_Click" />
+                                        ToolTip="发送 Break（交换机进入 ROMMON / 密码恢复）；右键选择脉冲时长"
+                                        Click="Break_Click">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Break 100 ms" Tag="100" Click="BreakDuration_Click" />
+                                            <MenuItem Header="Break 250 ms" Tag="250" Click="BreakDuration_Click" />
+                                            <MenuItem Header="Break 500 ms" Tag="500" Click="BreakDuration_Click" />
+                                            <MenuItem Header="Break 1000 ms" Tag="1000" Click="BreakDuration_Click" />
+                                            <MenuItem Header="Break 2000 ms" Tag="2000" Click="BreakDuration_Click" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
                                 <ToggleButton x:Name="DtrToggle"
                                               Content="DTR"
                                               Style="{StaticResource BtnToggle}"
@@ -431,6 +441,17 @@
                                         Style="{StaticResource BtnTool}"
                                         ToolTip="常用命令面板"
                                         Click="QuickCommands_Click" />
+                                <Button x:Name="SendBytesButton"
+                                        Content="字节"
+                                        Style="{StaticResource BtnTool}"
+                                        ToolTip="发送任意字节 / 转义序列（Ctrl+Shift+H）"
+                                        Click="SendBytes_Click" />
+                                <ToggleButton x:Name="HexToggle"
+                                              Content="Hex"
+                                              Style="{StaticResource BtnToggle}"
+                                              ToolTip="切换十六进制接收视图"
+                                              Margin="2,0,0,0"
+                                              Click="HexToggle_Click" />
                                 <Button x:Name="ClearButton"
                                         Content="清屏"
                                         Style="{StaticResource BtnTool}"

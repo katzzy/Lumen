@@ -47,7 +47,11 @@ public partial class MainWindow
     {
         OverlayHost.Visibility = Visibility.Collapsed;
         OverlayHost.Children.Clear();
-        if (_active is not null) _active.View.Focus();
+        if (_active is not null)
+        {
+            if (_active.HexMode) _active.HexView.Focus();
+            else _active.View.Focus();
+        }
     }
 
     private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
@@ -88,10 +92,14 @@ public partial class MainWindow
         int delay = tab.Profile.PasteLineDelayMs > 0
             ? tab.Profile.PasteLineDelayMs
             : _settings.DefaultPasteDelayMs;
-        delay = Math.Clamp(delay, 0, 1000);
+        delay = Math.Clamp(delay, 0, 5000);
+        int charDelay = Math.Clamp(tab.Profile.SendCharDelayMs, 0, 1000);
+        int echoTimeout = Math.Clamp(tab.Profile.EchoTimeoutMs, 200, 60000);
+        var echoHint = tab.Profile.WaitForEcho ? $"，每行等待回显（最多 {echoTimeout} ms）" : "";
 
-        SetStatus($"正在粘贴（每行延迟 {delay} ms，Esc 取消）…");
-        bool completed = await tab.Session.PasteAsync(text, delay);
+        SetStatus($"正在粘贴（字符 {charDelay} ms / 行 {delay} ms{echoHint}，Esc 取消）…");
+        bool completed = await tab.Session.PasteAsync(
+            text, delay, charDelay, tab.Profile.WaitForEcho, echoTimeout);
         SetStatus(completed ? "粘贴完成" : "粘贴已取消");
     }
 
@@ -120,8 +128,44 @@ public partial class MainWindow
     private async Task SendBreakAsync(TabEntry tab)
     {
         await tab.Session.SendBreakAsync();
-        SetStatus("已发送 Break");
+        SetStatus($"已发送 Break（{tab.Session.BreakDurationMs} ms）");
     }
+
+    private void BreakDuration_Click(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        if (sender is not MenuItem { Tag: string value } || !int.TryParse(value, out int duration)) return;
+
+        var tab = _active;
+        tab.Session.Profile.Serial.BreakDurationMs = duration;
+        tab.Profile.Serial.BreakDurationMs = duration;
+        if (_sessions.Contains(tab.Profile)) _store.Update(tab.Profile);
+        SetStatus($"Break 脉冲时长已设为 {duration} ms");
+    }
+
+    private void SendBytes_Click(object sender, RoutedEventArgs e)
+    {
+        var tab = _active;
+        if (tab is null)
+        {
+            SetStatus("没有活动会话", true);
+            return;
+        }
+
+        var view = new SendBytesView(
+            Lumen.Terminal.EncodingUtil.Resolve(tab.Profile.Encoding),
+            tab.Session.IsConnected);
+        view.SendRequested += bytes =>
+        {
+            tab.Session.SendBytes(bytes);
+            HideOverlay();
+            SetStatus($"已发送 {bytes.Length} 字节原始数据");
+        };
+        view.Cancelled += HideOverlay;
+        ShowOverlay(view);
+    }
+
+    private void HexToggle_Click(object sender, RoutedEventArgs e) => ToggleHexMode();
 
     private void Log_Click(object sender, RoutedEventArgs e)
     {
@@ -148,7 +192,19 @@ public partial class MainWindow
         UpdateToolbar();
     }
 
-    private void Clear_Click(object sender, RoutedEventArgs e) => _active?.View.ClearScreen();
+    private void Clear_Click(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        if (_active.HexMode)
+        {
+            _active.HexView.ClearBuffer();
+            SetStatus("已清空 Hex 缓冲（仅本机）");
+        }
+        else
+        {
+            _active.View.ClearScreen();
+        }
+    }
 
     private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
     {

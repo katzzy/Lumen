@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
@@ -25,6 +26,8 @@ public sealed class TerminalSession : IDisposable
     private bool _pagingSent;
     private bool _disposed;
     private CancellationTokenSource? _pasteCts;
+    private readonly object _echoLock = new();
+    private readonly StringBuilder _echo = new();
 
     public TerminalSession(SessionProfile profile, ITerminalTransport transport, AppSettings settings)
     {
@@ -52,11 +55,15 @@ public sealed class TerminalSession : IDisposable
 
         _transport.DataReceived += OnDataReceived;
         _transport.Disconnected += OnDisconnected;
+        _transport.Reconnected += OnReconnected;
     }
 
     public SessionProfile Profile => _profile;
     public ITerminalTransport Transport => _transport;
     public ScreenBuffer Buffer => _buffer;
+    public HexBuffer Hex { get; } = new(1024 * 1024);
+    public int BreakDurationMs => _profile.Serial.EffectiveBreakDurationMs;
+    public bool IsReconnecting => _transport.IsReconnecting;
     public VendorProfile? Vendor => _vendor;
     public bool IsConnected { get; private set; }
     public bool IsPasting { get; private set; }
@@ -87,6 +94,7 @@ public sealed class TerminalSession : IDisposable
             }
 
             IsConnected = true;
+            lock (_echoLock) _echo.Clear();
             StateChanged?.Invoke();
 
             if (_profile.AutoLog && _settings.AutoLog) StartLog();
@@ -113,6 +121,18 @@ public sealed class TerminalSession : IDisposable
         catch (Exception ex)
         {
             if (_disposed) return false;
+
+            // The reconnect worker may have restored the port before this
+            // continuation ran; in that case the session is actually online.
+            if (_transport.IsOpen)
+            {
+                IsConnected = true;
+                if (_profile.AutoLog && _settings.AutoLog) StartLog();
+                InjectSystem($"已连接 {_profile.Serial.PortName}");
+                StateChanged?.Invoke();
+                return true;
+            }
+
             IsConnected = false;
             InjectSystem($"无法打开 {_profile.Serial.PortName}：{ex.Message}", true);
             StateChanged?.Invoke();
@@ -123,6 +143,7 @@ public sealed class TerminalSession : IDisposable
     private void OnDataReceived(ReadOnlyMemory<byte> data)
     {
         if (_disposed) return;
+        Hex.Append(data.Span);
         Feed(data);
     }
 
@@ -139,6 +160,11 @@ public sealed class TerminalSession : IDisposable
             if (text.Any(c => c > 127)) _sawNonAscii = true;
             var detected = TryDetectVendor(text);
             _log.Write(text);
+            lock (_echoLock)
+            {
+                _echo.Append(text);
+                if (_echo.Length > 65536) _echo.Remove(0, 32768);
+            }
 
             lock (_buffer.SyncRoot)
             {
@@ -255,25 +281,56 @@ public sealed class TerminalSession : IDisposable
     private void HandleDisconnected(string reason)
     {
         if (_disposed) return;
-        if (!IsConnected && !_transport.IsOpen) return;
+        if (_transport.IsOpen)
+        {
+            // A reconnect completed before this queued notification ran.
+            if (!IsConnected)
+            {
+                IsConnected = true;
+                if (_profile.AutoLog && _settings.AutoLog) StartLog();
+                StateChanged?.Invoke();
+            }
+            return;
+        }
+        if (!IsConnected) return;
         IsConnected = false;
         _log.Stop();
-        InjectSystem($"连接已断开：{reason}", true);
+        var hint = _profile.AutoReconnect ? "，正在自动重连…" : "";
+        InjectSystem($"连接已断开：{reason}{hint}", true);
         StateChanged?.Invoke();
     }
 
-    public void SendText(string text)
+    private void OnReconnected()
     {
-        if (_disposed || !IsConnected || text.Length == 0) return;
+        if (_disposed) return;
+        _ui.Post(_ => HandleReconnected(), null);
+    }
+
+    private void HandleReconnected()
+    {
+        if (_disposed || IsConnected) return;
+        IsConnected = true;
+        if (_profile.AutoLog && _settings.AutoLog) StartLog();
+        InjectSystem("串口已重新连接");
+        StateChanged?.Invoke();
+    }
+
+    public void SendText(string text) => SendTextCore(text, logTransmit: true);
+
+    private bool SendTextCore(string text, bool logTransmit)
+    {
+        if (_disposed || !IsConnected || text.Length == 0) return false;
         try
         {
             var bytes = _encoding.GetBytes(text);
             _transport.Write(bytes);
-            if (text.EndsWith('\r') || text.EndsWith('\n')) _log.WriteTx(text);
+            if (logTransmit && (text.EndsWith('\r') || text.EndsWith('\n'))) _log.WriteTx(text);
+            return true;
         }
         catch (Exception ex)
         {
             HandleDisconnected(ex.Message);
+            return false;
         }
     }
 
@@ -300,7 +357,7 @@ public sealed class TerminalSession : IDisposable
     {
         try
         {
-            await _transport.SendBreakAsync().ConfigureAwait(false);
+            await _transport.SendBreakAsync(BreakDurationMs).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -311,12 +368,19 @@ public sealed class TerminalSession : IDisposable
     public void SetDtr(bool enabled) => _transport.SetDtr(enabled);
     public void SetRts(bool enabled) => _transport.SetRts(enabled);
 
-    public async Task<bool> PasteAsync(string text, int lineDelayMs)
+    public Task<bool> PasteAsync(string text, int lineDelayMs) =>
+        PasteAsync(text, lineDelayMs, 0, waitForEcho: false, echoTimeoutMs: 3000);
+
+    public async Task<bool> PasteAsync(string text, int lineDelayMs, int charDelayMs, bool waitForEcho, int echoTimeoutMs)
     {
         CancelPaste();
         var cts = new CancellationTokenSource();
         _pasteCts = cts;
         var token = cts.Token;
+
+        lineDelayMs = Math.Clamp(lineDelayMs, 0, 5000);
+        charDelayMs = Math.Clamp(charDelayMs, 0, 1000);
+        echoTimeoutMs = Math.Clamp(echoTimeoutMs, 200, 60000);
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n').ToList();
@@ -335,8 +399,20 @@ public sealed class TerminalSession : IDisposable
                     break;
                 }
 
-                SendText(lines[i] + "\r");
+                if (waitForEcho) ClearEchoBuffer();
+                if (!await SendPasteLineAsync(lines[i], charDelayMs, token).ConfigureAwait(true))
+                {
+                    completed = false;
+                    break;
+                }
+
                 PasteProgress?.Invoke(i + 1, lines.Count);
+
+                if (waitForEcho)
+                {
+                    await WaitForEchoAsync(lines[i], echoTimeoutMs, token).ConfigureAwait(true);
+                }
+
                 if (i < lines.Count - 1 && lineDelayMs > 0)
                 {
                     await Task.Delay(lineDelayMs, token).ConfigureAwait(true);
@@ -355,6 +431,57 @@ public sealed class TerminalSession : IDisposable
         }
 
         return completed;
+    }
+
+    private async Task<bool> SendPasteLineAsync(string line, int charDelayMs, CancellationToken token)
+    {
+        if (charDelayMs <= 0) return SendTextCore(line + "\r", logTransmit: true);
+
+        var enumerator = StringInfo.GetTextElementEnumerator(line);
+        int index = 0;
+        while (enumerator.MoveNext())
+        {
+            token.ThrowIfCancellationRequested();
+            if (_disposed || !IsConnected) return false;
+            if (index > 0) await Task.Delay(charDelayMs, token).ConfigureAwait(true);
+            if (!SendTextCore((string)enumerator.Current, logTransmit: false)) return false;
+            index++;
+        }
+
+        if (index > 0) await Task.Delay(charDelayMs, token).ConfigureAwait(true);
+        if (_disposed || !IsConnected) return false;
+        if (!SendTextCore("\r", logTransmit: false)) return false;
+        _log.WriteTx(line);
+        return true;
+    }
+
+    private void ClearEchoBuffer()
+    {
+        lock (_echoLock) _echo.Clear();
+    }
+
+    private async Task<bool> WaitForEchoAsync(string line, int timeoutMs, CancellationToken token)
+    {
+        var match = StripLineBreaks(line);
+        if (match.Length == 0) return true;
+
+        long deadline = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            token.ThrowIfCancellationRequested();
+            string buffer;
+            lock (_echoLock) buffer = _echo.ToString();
+            // Device echo wraps long lines, so ignore CR/LF inserted by the terminal.
+            if (StripLineBreaks(buffer).Contains(match, StringComparison.Ordinal)) return true;
+            await Task.Delay(20, token).ConfigureAwait(true);
+        }
+        return false;
+    }
+
+    private static string StripLineBreaks(string text)
+    {
+        if (!text.Contains('\r') && !text.Contains('\n')) return text;
+        return text.Replace("\r", "").Replace("\n", "");
     }
 
     public void CancelPaste()
@@ -377,7 +504,7 @@ public sealed class TerminalSession : IDisposable
             var root = directory ?? _profile.LogDirectory;
             if (string.IsNullOrWhiteSpace(root)) root = _settings.EffectiveLogRoot;
             var path = LogService.BuildFilePath(root, _profile.Name);
-            _log.Start(path, timestamps ?? _settings.LogTimestamps, new UTF8Encoding(false));
+            _log.Start(path, timestamps ?? _settings.LogTimestamps, new UTF8Encoding(false), _profile.RawLog);
         }
         catch (Exception ex)
         {
@@ -440,6 +567,7 @@ public sealed class TerminalSession : IDisposable
         CancelPaste();
         _transport.DataReceived -= OnDataReceived;
         _transport.Disconnected -= OnDisconnected;
+        _transport.Reconnected -= OnReconnected;
         _ = _log.StopAsync();
         try
         {

@@ -156,6 +156,7 @@ internal sealed class Win32SerialPort : IDisposable
     private void ReadLoop()
     {
         var buffer = new byte[8192];
+        int idlePolls = 0;
         while (_running)
         {
             IntPtr handle;
@@ -184,10 +185,23 @@ internal sealed class Win32SerialPort : IDisposable
 
             if (read == 0)
             {
+                // An unplugged USB adapter may keep ReadFile returning 0 instead
+                // of failing. Probe the handle so auto-reconnect can kick in.
+                if (++idlePolls >= 50)
+                {
+                    idlePolls = 0;
+                    if (!ClearCommError(handle, out _, out _))
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        if (_running) Faulted?.Invoke(FriendlyError("串口", err));
+                        break;
+                    }
+                }
                 Thread.Sleep(4);
                 continue;
             }
 
+            idlePolls = 0;
             BytesReceived += read;
             try
             {
@@ -242,7 +256,7 @@ internal sealed class Win32SerialPort : IDisposable
         }
     }
 
-    public async Task SendBreakAsync()
+    public async Task SendBreakAsync(int durationMs)
     {
         IntPtr handle;
         lock (_stateLock) handle = _handle;
@@ -251,7 +265,7 @@ internal sealed class Win32SerialPort : IDisposable
         EscapeCommFunction(handle, SetBreakFunc);
         try
         {
-            await Task.Delay(250).ConfigureAwait(false);
+            await Task.Delay(Math.Clamp(durationMs, 10, 5000)).ConfigureAwait(false);
         }
         finally
         {
@@ -350,6 +364,14 @@ internal sealed class Win32SerialPort : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct ComStat
+    {
+        public uint Flags;
+        public uint cbInQue;
+        public uint cbOutQue;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct CommTimeouts
     {
         public uint ReadIntervalTimeout;
@@ -396,6 +418,10 @@ internal sealed class Win32SerialPort : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToWrite, out uint lpNumberOfBytesWritten, IntPtr lpOverlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClearCommError(IntPtr hFile, out uint lpErrors, out ComStat lpStat);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

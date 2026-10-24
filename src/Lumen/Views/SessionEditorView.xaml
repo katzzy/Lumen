@@ -204,10 +204,39 @@
                             <CheckBox x:Name="AutoPagingCheck" Content="登录后按厂商命令自动关闭分页" Margin="0,8,0,0" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="粘贴每行延迟 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBlock Text="粘贴行延迟 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
                             <TextBox x:Name="PasteDelayBox" Height="34" VerticalContentAlignment="Top" />
                         </StackPanel>
                     </Grid>
+
+                    <TextBlock Text="发送与重连" Style="{StaticResource Text.Section}" Margin="0,10,0,8" />
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Break 脉冲 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="BreakDurationBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="粘贴字符延迟 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="SendCharDelayBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="回显超时 (ms)" Style="{StaticResource Text.Muted}" Margin="2,0,0,5" />
+                            <TextBox x:Name="EchoTimeoutBox" Height="34" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Margin="2,0,0,8">
+                        <CheckBox x:Name="WaitEchoCheck" Content="粘贴时等待设备回显后再发送下一行" />
+                        <CheckBox x:Name="AutoReconnectCheck" Content="连接断开后自动重连（支持 USB 串口热插拔）" Margin="0,8,0,0" />
+                        <CheckBox x:Name="RawLogCheck" Content="原始日志（保留 ANSI 转义与控制字符）" Margin="0,8,0,0" />
+                    </StackPanel>
 
                     <CheckBox x:Name="ConfirmPasteCheck"
                               Content="粘贴危险命令（erase / reload 等）前二次确认"

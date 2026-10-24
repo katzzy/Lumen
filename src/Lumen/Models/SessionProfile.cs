@@ -24,6 +24,11 @@ public sealed class SessionProfile
     public bool AutoPaging { get; set; } = true;
     public string? LogDirectory { get; set; }
     public int PasteLineDelayMs { get; set; } = 100;
+    public int SendCharDelayMs { get; set; }
+    public bool WaitForEcho { get; set; }
+    public int EchoTimeoutMs { get; set; } = 3000;
+    public bool RawLog { get; set; }
+    public bool AutoReconnect { get; set; } = true;
     public string InitCommands { get; set; } = "";
     public bool ConfirmDangerousPaste { get; set; } = true;
     public List<QuickCommand> QuickCommands { get; set; } = new();

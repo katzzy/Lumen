@@ -45,8 +45,17 @@ public partial class MainWindow
         };
         tab.View = view;
 
+        var hexView = new HexView
+        {
+            Session = session,
+            HexFontSize = Math.Max(10, profile.FontSize > 0 ? profile.FontSize - 1.5 : _settings.FontSize - 1.5),
+            Visibility = Visibility.Collapsed
+        };
+        tab.HexView = hexView;
+
         var container = new Grid { Visibility = Visibility.Collapsed };
         container.Children.Add(view);
+        container.Children.Add(hexView);
         tab.Container = container;
         TerminalPanes.Children.Add(container);
 
@@ -117,8 +126,31 @@ public partial class MainWindow
         }
         else
         {
-            SetStatus($"连接失败：{profile.Serial.PortName}", true);
+            SetStatus(profile.AutoReconnect
+                ? $"连接失败：{profile.Serial.PortName}，正在自动重试…"
+                : $"连接失败：{profile.Serial.PortName}", true);
         }
+    }
+
+    private void ToggleHexMode()
+    {
+        var tab = _active;
+        if (tab is null) return;
+
+        tab.HexMode = !tab.HexMode;
+        tab.View.Visibility = tab.HexMode ? Visibility.Collapsed : Visibility.Visible;
+        tab.HexView.Visibility = tab.HexMode ? Visibility.Visible : Visibility.Collapsed;
+        if (tab.HexMode)
+        {
+            tab.HexView.Focus();
+            SetStatus("已切换到 Hex 视图（滚轮滚动，Ctrl+C 复制全部）");
+        }
+        else
+        {
+            tab.View.Focus();
+            SetStatus("已切换到终端视图");
+        }
+        UpdateToolbar();
     }
 
     private void BuildTabHeader(TabEntry tab)
@@ -232,7 +264,8 @@ public partial class MainWindow
         ActiveSubtitle.Text = BuildSubtitle(tab);
         EncodingText.Text = tab.Profile.Encoding.ToUpperInvariant();
         UpdateToolbar();
-        tab.View.Focus();
+        if (tab.HexMode) tab.HexView.Focus();
+        else tab.View.Focus();
         HideFind();
         if (tab.Session.IsConnected) SetStatus($"已连接 {tab.Profile.Serial.PortName} · {tab.Profile.Serial.BaudRate}");
     }
@@ -248,7 +281,7 @@ public partial class MainWindow
 
         tab.Dot.Background = tab.Session.IsConnected
             ? Res("Brush.Green")
-            : tab.Connecting ? Res("Brush.Amber") : Res("Brush.TextMuted");
+            : tab.Connecting || tab.Session.IsReconnecting ? Res("Brush.Amber") : Res("Brush.TextMuted");
 
         if (active)
         {
@@ -261,7 +294,11 @@ public partial class MainWindow
         var s = tab.Profile.Serial;
         var vendor = VendorCatalog.Find(tab.Profile.VendorId);
         var vendorName = vendor.Id == "auto" ? "自动" : vendor.Name;
-        var state = tab.Session.IsConnected ? "已连接" : tab.Connecting ? "连接中…" : "未连接";
+        var state = tab.Session.IsConnected
+            ? "已连接"
+            : tab.Connecting
+                ? "连接中…"
+                : tab.Session.IsReconnecting ? "自动重连中…" : "未连接";
         return $"{vendorName} · {s.PortName} · {s.BaudRate} · {s.DataBits}{ParityLetter(s.Parity)}{StopLetter(s.StopBits)} · {state}";
     }
 
@@ -290,6 +327,7 @@ public partial class MainWindow
         ActiveDot.Background = connected
             ? Res("Brush.Green")
             : has ? Res("Brush.Amber") : Res("Brush.TextMuted");
+        SendBytesButton.IsEnabled = connected;
         ActiveTitle.Text = _active?.Profile.Name ?? "未连接";
         ActiveSubtitle.Text = _active is null
             ? "选择左侧会话，或使用快速连接"
@@ -297,6 +335,7 @@ public partial class MainWindow
 
         BreakButton.IsEnabled = connected;
         ReconnectButton.IsEnabled = has && _active?.Profile.Id != "demo-session";
+        HexToggle.IsEnabled = has;
         LogButton.IsEnabled = has;
         LogFolderButton.IsEnabled = has;
         QuickCommandButton.IsEnabled = has;
@@ -312,6 +351,9 @@ public partial class MainWindow
         _suppressToggle = false;
 
         LogButton.Content = session?.IsLogging == true ? "停止日志" : "日志";
+        _suppressToggle = true;
+        HexToggle.IsChecked = _active?.HexMode == true;
+        _suppressToggle = false;
         EncodingText.Text = _active?.Profile.Encoding.ToUpperInvariant() ?? "UTF-8";
         Title = _active is null ? "Lumen Terminal" : $"Lumen Terminal — {_active.Profile.Name}";
     }

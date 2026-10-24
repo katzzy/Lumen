@@ -36,7 +36,14 @@ public sealed class SerialConfig
     public bool Dtr { get; set; } = true;
     public bool Rts { get; set; } = true;
 
+    /// <summary>Duration of the BREAK signal pulse, in milliseconds.</summary>
+    public int BreakDurationMs { get; set; } = 250;
+
     public SerialConfig Clone() => (SerialConfig)MemberwiseClone();
+
+    /// <summary>Break duration clamped to the range accepted by the UI.</summary>
+    [JsonIgnore]
+    public int EffectiveBreakDurationMs => Math.Clamp(BreakDurationMs, 10, 5000);
 
     [JsonIgnore]
     public string Summary => $"{PortName} · {BaudRate} · {DataBits}{ParityLetter}{StopBitsLetter}";

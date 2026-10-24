@@ -15,6 +15,7 @@ public sealed class LogService : IDisposable
     private StreamWriter? _writer;
     private string? _filePath;
     private bool _active;
+    private bool _raw;
 
     private bool _atLineStart = true;
     private bool _skipLineFeed;
@@ -40,7 +41,7 @@ public sealed class LogService : IDisposable
         Stop
     }
 
-    private readonly record struct LogEntry(EntryKind Kind, string Text = "");
+    private readonly record struct LogEntry(EntryKind Kind, string Text = "", bool Raw = false);
 
     public string? FilePath
     {
@@ -53,6 +54,12 @@ public sealed class LogService : IDisposable
     }
 
     public bool TimestampEnabled { get; private set; }
+
+    /// <summary>When true, escape sequences and control characters are logged verbatim.</summary>
+    public bool RawEnabled
+    {
+        get { lock (_gate) return _raw; }
+    }
 
     public static string BuildFilePath(string root, string sessionName)
     {
@@ -80,7 +87,7 @@ public sealed class LogService : IDisposable
         return string.IsNullOrEmpty(value) ? "session" : value;
     }
 
-    public void Start(string path, bool timestamp, Encoding encoding)
+    public void Start(string path, bool timestamp, Encoding encoding, bool raw = false)
     {
         Stop();
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
@@ -98,6 +105,7 @@ public sealed class LogService : IDisposable
             _writer = writer;
             _filePath = path;
             _active = true;
+            _raw = raw;
             _queue = queue;
         }
 
@@ -118,8 +126,13 @@ public sealed class LogService : IDisposable
     {
         if (text.Length == 0) return;
         Channel<LogEntry>? queue;
-        lock (_gate) queue = _queue;
-        queue?.Writer.TryWrite(new LogEntry(EntryKind.Receive, text));
+        bool raw;
+        lock (_gate)
+        {
+            queue = _queue;
+            raw = _raw;
+        }
+        queue?.Writer.TryWrite(new LogEntry(EntryKind.Receive, text, raw));
     }
 
     public void WriteTx(string command)
@@ -161,6 +174,7 @@ public sealed class LogService : IDisposable
             _queue = null;
             _worker = null;
             _active = false;
+            _raw = false;
         }
 
         if (queue is null || worker is null) return Task.CompletedTask;
@@ -197,7 +211,7 @@ public sealed class LogService : IDisposable
                 switch (entry.Kind)
                 {
                     case EntryKind.Receive:
-                        WriteRaw(entry.Text);
+                        WriteRaw(entry.Text, entry.Raw);
                         break;
                     case EntryKind.Transmit:
                         WriteTxCore(entry.Text);
@@ -231,9 +245,17 @@ public sealed class LogService : IDisposable
         }
     }
 
-    private void WriteRaw(string text)
+    private void WriteRaw(string text, bool raw)
     {
         if (_writer is null) return;
+
+        if (raw)
+        {
+            WriteVerbatim(text);
+            _pendingChars += text.Length;
+            if (_pendingChars >= 8192) FlushCore();
+            return;
+        }
 
         int index = 0;
         while (index < text.Length)
@@ -345,6 +367,28 @@ public sealed class LogService : IDisposable
                 _atLineStart = false;
             }
             _writer.Write(ch);
+        }
+    }
+
+    private void WriteVerbatim(string text)
+    {
+        if (_writer is null) return;
+
+        foreach (char ch in text)
+        {
+            if (_atLineStart && ch != '\r' && ch != '\n')
+            {
+                if (TimestampEnabled) _writer.Write($"[{DateTime.Now:HH:mm:ss}] ");
+                _atLineStart = false;
+            }
+
+            _writer.Write(ch);
+
+            if (ch == '\n')
+            {
+                _atLineStart = true;
+                _skipLineFeed = false;
+            }
         }
     }
 

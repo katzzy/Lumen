@@ -10,6 +10,8 @@ public sealed class AppSettings
     public string LogRoot { get; set; } = "";
     public bool AutoLog { get; set; } = true;
     public bool LogTimestamps { get; set; }
+    public bool RawLog { get; set; }
+    public bool AutoReconnect { get; set; } = true;
     public bool ConfirmDangerousPaste { get; set; } = true;
     public int DefaultPasteDelayMs { get; set; } = 100;
 

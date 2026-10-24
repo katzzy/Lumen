@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $project = Join-Path $root "src\Lumen\Lumen.csproj"
 $out = Join-Path $root "dist\Lumen"
+$version = ([xml](Get-Content $project -Raw -Encoding UTF8)).Project.PropertyGroup.Version
 
 $dotnet = (Get-Command dotnet -ErrorAction SilentlyContinue).Source
 if (-not $dotnet) {
@@ -35,10 +36,32 @@ if (Test-Path (Join-Path $root "screenshot.png")) {
 }
 
 if (-not $NoZip) {
-    $zip = Join-Path $root "dist\Lumen-1.1.13-win-x64.zip"
+    $zip = Join-Path $root "dist\Lumen-$version-win-x64.zip"
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -CompressionLevel Optimal
+
+    $zipName = Split-Path -Leaf $zip
+    $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+    $nl = "`r`n"
+    [System.IO.File]::WriteAllText(
+        "$zip.sha256",
+        ("{0}  {1}{2}" -f $zipHash, $zipName, $nl),
+        [System.Text.Encoding]::ASCII)
+
+    $sums = @()
+    $shot = Join-Path $root "screenshot.png"
+    if (Test-Path $shot) {
+        $shotHash = (Get-FileHash $shot -Algorithm SHA256).Hash.ToLowerInvariant()
+        $sums += "{0}  screenshot.png" -f $shotHash
+    }
+    $sums += "{0}  {1}" -f $zipHash, $zipName
+    [System.IO.File]::WriteAllText(
+        (Join-Path $root "dist\SHA256SUMS.txt"),
+        (($sums -join $nl) + $nl),
+        [System.Text.Encoding]::ASCII)
+
     Write-Host "Package: $zip"
+    Write-Host "SHA256:  $zipHash"
 }
 
 Write-Host "Built: $out"

@@ -113,6 +113,10 @@ public partial class MainWindow : Window
 
         if (msg == WmDeviceChange)
         {
+            foreach (var tab in _tabs)
+            {
+                if (tab.Session.Transport is SerialConnection serial) serial.NotifyDevicesChanged();
+            }
             _deviceRefreshTimer.Stop();
             _deviceRefreshTimer.Start();
         }
@@ -168,8 +172,8 @@ public partial class MainWindow : Window
             profile.Id = "quick-" + port;
             profile.Serial.PortName = port;
             if (int.TryParse(GetArg("--baud"), out int baud)) profile.Serial.BaudRate = baud;
-            profile.AutoLog = _settings.AutoLog;
-            StartSession(profile, new SerialConnection(profile.Serial));
+            ApplySettingsDefaults(profile);
+            StartSession(profile, CreateTransport(profile));
             return;
         }
 
@@ -177,8 +181,19 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(sessionId))
         {
             var profile = _sessions.FirstOrDefault(s => s.Id == sessionId);
-            if (profile is not null) StartSession(profile, new SerialConnection(profile.Serial));
+            if (profile is not null) StartSession(profile, CreateTransport(profile));
         }
+    }
+
+    private static SerialConnection CreateTransport(SessionProfile profile) =>
+        new(profile.Serial, profile.AutoReconnect);
+
+    private void ApplySettingsDefaults(SessionProfile profile)
+    {
+        profile.AutoLog = _settings.AutoLog;
+        profile.RawLog = _settings.RawLog;
+        profile.AutoReconnect = _settings.AutoReconnect;
+        profile.FontSize = _settings.FontSize;
     }
 
     private string? GetArg(string name)
@@ -215,11 +230,13 @@ public partial class MainWindow : Window
         var buffer = session.Buffer;
         ThroughputText.Text = $"RX {FormatBytes(session.BytesReceived)}    TX {FormatBytes(session.BytesSent)}";
         CursorText.Text = $"{buffer.Columns} × {buffer.Rows}  ·  {buffer.CursorRow + 1},{buffer.CursorCol + 1}";
-        LogText.Text = session.IsLogging ? "● 日志记录中" : "○ 未记录";
+        LogText.Text = session.IsLogging
+            ? session.Profile.RawLog ? "● 原始日志" : "● 日志记录中"
+            : "○ 未记录";
         LogText.Foreground = session.IsLogging ? Res("Brush.Green") : Res("Brush.TextMuted");
         StatusDot.Background = session.IsConnected
             ? Res("Brush.Green")
-            : _active.Connecting ? Res("Brush.Amber") : Res("Brush.Red");
+            : _active.Connecting || session.IsReconnecting ? Res("Brush.Amber") : Res("Brush.Red");
     }
 
     private static string FormatBytes(long bytes)
@@ -351,6 +368,12 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (ctrl && shift && e.Key == Key.H)
+        {
+            SendBytes_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
         if (ctrl && e.Key >= Key.D1 && e.Key <= Key.D9)
         {
             int index = e.Key - Key.D1;
@@ -400,7 +423,17 @@ public partial class MainWindow : Window
 
     private void RefreshPorts()
     {
+        var previous = _ports;
         _ports = SerialPortEnumerator.GetPorts();
+
+        var openPort = _active?.Profile.Serial.PortName;
+        if (!string.IsNullOrWhiteSpace(openPort) &&
+            previous.Any(p => p.PortName.Equals(openPort, StringComparison.OrdinalIgnoreCase)) &&
+            !_ports.Any(p => p.PortName.Equals(openPort, StringComparison.OrdinalIgnoreCase)))
+        {
+            SetStatus($"{openPort} 已断开，等待设备重新插入…", true);
+        }
+
         var selectedPort = (PortCombo.SelectedItem as SerialPortInfo)?.PortName;
         if (_ports.Count == 0)
         {
@@ -465,15 +498,14 @@ public partial class MainWindow : Window
         profile.Id = $"quick-{port.PortName}-{baud}";
         profile.Serial.PortName = port.PortName;
         profile.Serial.BaudRate = baud;
-        profile.AutoLog = _settings.AutoLog;
-        profile.FontSize = _settings.FontSize;
-        StartSession(profile, new SerialConnection(profile.Serial));
+        ApplySettingsDefaults(profile);
+        StartSession(profile, CreateTransport(profile));
     }
 
     private TabEntry? FindBusyTabForPort(string portName)
     {
         return _tabs.FirstOrDefault(t =>
-            (t.Connecting || t.Session.IsConnected) &&
+            (t.Connecting || t.Session.IsConnected || t.Session.IsReconnecting) &&
             string.Equals(t.Profile.Serial.PortName, portName, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -486,15 +518,14 @@ public partial class MainWindow : Window
         string port = profile.Serial.PortName;
         CloseTab(tab);
         SetStatus($"正在重新连接 {port}…");
-        StartSession(profile, new SerialConnection(profile.Serial));
+        StartSession(profile, CreateTransport(profile));
     }
 
     private void NewSession_Click(object sender, RoutedEventArgs e)
     {
         var profile = SessionProfile.CreateDefault("新会话", "我的设备");
         profile.Serial.PortName = _ports.Count > 0 ? _ports[0].PortName : "COM1";
-        profile.AutoLog = _settings.AutoLog;
-        profile.FontSize = _settings.FontSize;
+        ApplySettingsDefaults(profile);
         ShowSessionEditor(profile, true);
     }
 
@@ -573,6 +604,8 @@ public partial class MainWindow : Window
         public SessionProfile Profile { get; }
         public TerminalSession Session { get; }
         public TerminalView View { get; set; } = null!;
+        public HexView HexView { get; set; } = null!;
+        public bool HexMode { get; set; }
         public Grid Container { get; set; } = null!;
         public Border Header { get; set; } = null!;
         public TextBlock TitleText { get; set; } = null!;

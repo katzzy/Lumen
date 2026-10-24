@@ -26,6 +26,8 @@ public partial class SettingsView : UserControl
         LogRootBox.Text = settings.LogRoot ?? "";
         AutoLogCheck.IsChecked = settings.AutoLog;
         TimestampCheck.IsChecked = settings.LogTimestamps;
+        RawLogCheck.IsChecked = settings.RawLog;
+        AutoReconnectCheck.IsChecked = settings.AutoReconnect;
         ConfirmPasteCheck.IsChecked = settings.ConfirmDangerousPaste;
         DataPathText.Text = AppPaths.DataDirectory;
     }
@@ -41,6 +43,8 @@ public partial class SettingsView : UserControl
         PasteDelayBox.Text = "100";
         AutoLogCheck.IsChecked = true;
         TimestampCheck.IsChecked = false;
+        RawLogCheck.IsChecked = false;
+        AutoReconnectCheck.IsChecked = true;
         ConfirmPasteCheck.IsChecked = true;
     }
 
@@ -72,9 +76,9 @@ public partial class SettingsView : UserControl
             ErrorText.Text = "回滚行数需在 1000 - 200000 之间";
             return;
         }
-        if (!int.TryParse(PasteDelayBox.Text.Trim(), out int delay) || delay < 0 || delay > 1000)
+        if (!int.TryParse(PasteDelayBox.Text.Trim(), out int delay) || delay < 0 || delay > 5000)
         {
-            ErrorText.Text = "粘贴延迟需在 0 - 1000 毫秒之间";
+            ErrorText.Text = "粘贴延迟需在 0 - 5000 毫秒之间";
             return;
         }
 
@@ -86,6 +90,8 @@ public partial class SettingsView : UserControl
             LogRoot = LogRootBox.Text.Trim(),
             AutoLog = AutoLogCheck.IsChecked == true,
             LogTimestamps = TimestampCheck.IsChecked == true,
+            RawLog = RawLogCheck.IsChecked == true,
+            AutoReconnect = AutoReconnectCheck.IsChecked == true,
             ConfirmDangerousPaste = ConfirmPasteCheck.IsChecked == true,
             DefaultPasteDelayMs = delay
         };

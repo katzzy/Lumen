@@ -1,3 +1,4 @@
+using Lumen.Models;
 using Lumen.Serial;
 using Lumen.Services;
 using Lumen.Terminal;
@@ -150,6 +151,100 @@ try
 finally
 {
     if (File.Exists(logPath)) File.Delete(logPath);
+}
+
+// Arbitrary byte input
+Check("hex bytes", ByteSequenceParser.TryParse("1B 5B 32 4A", ByteInputMode.Hex, Encoding.UTF8, out var hexBytes, out _)
+    && hexBytes.SequenceEqual(new byte[] { 0x1B, 0x5B, 0x32, 0x4A }), string.Join(",", hexBytes));
+Check("hex bytes continuous and prefixed",
+    ByteSequenceParser.TryParse("0x1B5B", ByteInputMode.Hex, Encoding.UTF8, out var hexBytes2, out _)
+    && hexBytes2.SequenceEqual(new byte[] { 0x1B, 0x5B }), string.Join(",", hexBytes2));
+Check("escape bytes", ByteSequenceParser.TryParse("\\x1b[2J\\r\\n", ByteInputMode.Escape, Encoding.UTF8, out var escBytes, out _)
+    && escBytes.SequenceEqual(new byte[] { 0x1B, 0x5B, 0x32, 0x4A, 0x0D, 0x0A }), string.Join(",", escBytes));
+Check("control caret", ByteSequenceParser.TryParse("^C", ByteInputMode.Escape, Encoding.UTF8, out var ctrlBytes, out _)
+    && ctrlBytes.SequenceEqual(new byte[] { 0x03 }), string.Join(",", ctrlBytes));
+Check("unicode escape", ByteSequenceParser.TryParse("\\u4E2D", ByteInputMode.Escape, Encoding.UTF8, out var uBytes, out _)
+    && uBytes.SequenceEqual(new byte[] { 0xE4, 0xB8, 0xAD }), string.Join(",", uBytes));
+Check("bad escape rejected", !ByteSequenceParser.TryParse("\\q", ByteInputMode.Escape, Encoding.UTF8, out _, out _));
+Check("text mode", ByteSequenceParser.TryParse("AB", ByteInputMode.Text, Encoding.ASCII, out var textBytes, out _)
+    && textBytes.SequenceEqual(new byte[] { 0x41, 0x42 }), string.Join(",", textBytes));
+
+// Break duration configuration
+var serialConfig = new SerialConfig();
+Check("break default", serialConfig.EffectiveBreakDurationMs == 250, serialConfig.EffectiveBreakDurationMs.ToString());
+serialConfig.BreakDurationMs = 9999;
+Check("break clamp high", serialConfig.EffectiveBreakDurationMs == 5000, serialConfig.EffectiveBreakDurationMs.ToString());
+serialConfig.BreakDurationMs = 1;
+Check("break clamp low", serialConfig.EffectiveBreakDurationMs == 10, serialConfig.EffectiveBreakDurationMs.ToString());
+
+// Hex buffer
+var hexBuffer = new HexBuffer(1024);
+var payload = new byte[1200];
+for (int i = 0; i < payload.Length; i++) payload[i] = (byte)(i % 251);
+hexBuffer.Append(payload);
+Check("hex buffer total", hexBuffer.TotalBytes == 1200, hexBuffer.TotalBytes.ToString());
+Check("hex buffer cap", hexBuffer.Count <= 1024 && hexBuffer.Count % HexBuffer.BytesPerLine == 0,
+    $"count={hexBuffer.Count}");
+var firstLine = new byte[HexBuffer.BytesPerLine];
+int copied = hexBuffer.CopyLine(0, firstLine);
+Check("hex buffer trimmed offset", copied == 16 && firstLine[0] == payload[(int)hexBuffer.BaseOffset],
+    $"copied={copied} first={firstLine[0]} base={hexBuffer.BaseOffset}");
+Check("hex buffer line offsets", hexBuffer.LineOffset(1) - hexBuffer.LineOffset(0) == HexBuffer.BytesPerLine);
+
+// Raw log preserves escapes and control characters
+string rawLogPath = Path.Combine(Environment.CurrentDirectory, $"lumen-raw-{Guid.NewGuid():N}.log");
+try
+{
+    using var rawLog = new LogService();
+    rawLog.Start(rawLogPath, timestamp: false, Encoding.UTF8, raw: true);
+    Check("raw log active", rawLog.RawEnabled);
+    rawLog.Write("\x1b[31mraw red\x1b[0m\r\n");
+    rawLog.Stop();
+    string rawText = File.ReadAllText(rawLogPath);
+    Check("raw log keeps ansi", rawText.Contains('\x1b') && rawText.Contains("raw red"), rawText);
+    Check("raw log keeps crlf", rawText.Contains("\r\n"), rawText.Replace("\r", "<CR>").Replace("\n", "<LF>"));
+}
+finally
+{
+    if (File.Exists(rawLogPath)) File.Delete(rawLogPath);
+}
+
+// XAML smoke test: load every overlay view so broken resources or bindings fail here.
+Exception? uiError = null;
+var uiThread = new Thread(() =>
+{
+    try
+    {
+        var app = new Application();
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/Lumen;component/Themes/Colors.xaml")
+        });
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/Lumen;component/Themes/Controls.xaml")
+        });
+
+        _ = new Lumen.Views.SendBytesView(Encoding.UTF8, connected: true);
+        _ = new Lumen.Views.SettingsView(new AppSettings());
+        _ = new Lumen.Views.SessionEditorView(SessionProfile.CreateDefault(), new List<SerialPortInfo>(), isNew: true);
+        _ = new Lumen.Controls.HexView();
+        app.Shutdown();
+    }
+    catch (Exception ex)
+    {
+        uiError = ex;
+    }
+});
+uiThread.SetApartmentState(ApartmentState.STA);
+uiThread.Start();
+if (!uiThread.Join(TimeSpan.FromSeconds(20)))
+{
+    Check("xaml views load", false, "UI thread timed out");
+}
+else
+{
+    Check("xaml views load", uiError is null, uiError?.ToString() ?? "");
 }
 
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");

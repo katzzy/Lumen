@@ -12,12 +12,16 @@ public sealed class DemoTransport : ITerminalTransport
     private int _bytesSent;
 
     public bool IsOpen { get; private set; }
+    public bool IsReconnecting => false;
     public string DisplayName => "演示 · Cisco Catalyst 2960";
     public long BytesReceived { get; private set; }
     public long BytesSent => _bytesSent;
 
     public event Action<ReadOnlyMemory<byte>>? DataReceived;
     public event Action<string>? Disconnected;
+#pragma warning disable CS0067 // demo transport never reconnects
+    public event Action? Reconnected;
+#pragma warning restore CS0067
 
     public async Task OpenAsync()
     {
@@ -177,10 +181,10 @@ public sealed class DemoTransport : ITerminalTransport
         DataReceived?.Invoke(bytes);
     }
 
-    public async Task SendBreakAsync()
+    public async Task SendBreakAsync(int durationMs)
     {
         _input.Clear();
-        Emit("\r\n*** Break ***\r\n");
+        Emit($"\r\n*** Break ({Math.Clamp(durationMs, 10, 5000)} ms) ***\r\n");
         await Task.Delay(80);
         Emit(Prompt);
     }

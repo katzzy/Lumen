@@ -101,6 +101,8 @@
 
                     <CheckBox x:Name="AutoLogCheck" Content="连接会话后自动开始记录日志" Margin="2,0,0,10" />
                     <CheckBox x:Name="TimestampCheck" Content="日志每行添加时间戳" Margin="2,0,0,10" />
+                    <CheckBox x:Name="RawLogCheck" Content="默认记录原始日志（保留 ANSI 转义与控制字符）" Margin="2,0,0,10" />
+                    <CheckBox x:Name="AutoReconnectCheck" Content="会话断开后自动重连（含端口热插拔）" Margin="2,0,0,10" />
                     <CheckBox x:Name="ConfirmPasteCheck" Content="粘贴危险命令前二次确认" Margin="2,0,0,10" />
 
                     <Border Background="{StaticResource Brush.BgDeep}"
@@ -117,7 +119,7 @@
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        TextWrapping="Wrap"
                                        Margin="0,5,0,0" />
-                            <TextBlock Text="Lumen 1.1 · 为网络运维打造的串口控制台"
+                            <TextBlock Text="Lumen 1.2 · 为网络运维打造的串口控制台"
                                        FontSize="11"
                                        Foreground="{StaticResource Brush.TextMuted}"
                                        Margin="0,10,0,0" />

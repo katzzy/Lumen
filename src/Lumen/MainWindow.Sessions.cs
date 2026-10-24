@@ -30,7 +30,7 @@ public partial class MainWindow
     {
         if (SessionList.SelectedItem is SessionProfile profile)
         {
-            StartSession(profile, new SerialConnection(profile.Serial));
+            StartSession(profile, CreateTransport(profile));
         }
     }
 
@@ -44,7 +44,7 @@ public partial class MainWindow
     {
         if (SessionList.SelectedItem is SessionProfile profile)
         {
-            StartSession(profile, new SerialConnection(profile.Serial));
+            StartSession(profile, CreateTransport(profile));
         }
     }
 
@@ -109,6 +109,7 @@ public partial class MainWindow
             {
                 tab.View.TerminalFontSize = settings.FontSize;
                 tab.View.TerminalFontFamily = settings.FontFamily;
+                tab.HexView.HexFontSize = Math.Max(10, settings.FontSize - 1.5);
                 tab.Session.Buffer.ScrollbackLimit = Math.Max(1000, settings.ScrollbackLines);
             }
             HideOverlay();
@@ -147,12 +148,29 @@ public partial class MainWindow
                 tab.Profile.AutoPaging = updated.AutoPaging;
                 tab.Profile.QuickCommands = updated.QuickCommands.Select(q => q.Clone()).ToList();
                 tab.Profile.PasteLineDelayMs = updated.PasteLineDelayMs;
+                tab.Profile.SendCharDelayMs = updated.SendCharDelayMs;
+                tab.Profile.WaitForEcho = updated.WaitForEcho;
+                tab.Profile.EchoTimeoutMs = updated.EchoTimeoutMs;
+                tab.Profile.RawLog = updated.RawLog;
+                tab.Profile.AutoReconnect = updated.AutoReconnect;
+                tab.Profile.Serial.BreakDurationMs = updated.Serial.BreakDurationMs;
                 tab.Profile.LogDirectory = updated.LogDirectory;
                 tab.Profile.ConfirmDangerousPaste = updated.ConfirmDangerousPaste;
                 tab.Profile.InitCommands = updated.InitCommands;
                 tab.Profile.AutoLog = updated.AutoLog;
+
+                // Runtime session settings that can change without reconnecting.
+                tab.Session.Profile.Name = updated.Name;
+                tab.Session.Profile.LogDirectory = updated.LogDirectory;
+                tab.Session.Profile.RawLog = updated.RawLog;
+                tab.Session.Profile.AutoLog = updated.AutoLog;
+                tab.Session.Profile.AutoReconnect = updated.AutoReconnect;
+                tab.Session.Profile.Serial.BreakDurationMs = updated.Serial.BreakDurationMs;
+                if (tab.Session.Transport is SerialConnection serial) serial.SetAutoReconnect(updated.AutoReconnect);
+
                 tab.TitleText.Text = updated.Name;
                 tab.View.TerminalFontSize = updated.FontSize;
+                tab.HexView.HexFontSize = Math.Max(10, updated.FontSize - 1.5);
                 UpdateTabVisual(tab);
                 if (ReferenceEquals(_active, tab))
                 {

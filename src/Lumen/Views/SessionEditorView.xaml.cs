@@ -50,6 +50,12 @@ public partial class SessionEditorView : UserControl
         EncodingBox.SelectedIndex = EncodingIndex(profile.Encoding);
         FontSizeBox.Text = profile.FontSize.ToString("0.#");
         PasteDelayBox.Text = profile.PasteLineDelayMs.ToString();
+        BreakDurationBox.Text = profile.Serial.BreakDurationMs.ToString();
+        SendCharDelayBox.Text = profile.SendCharDelayMs.ToString();
+        EchoTimeoutBox.Text = profile.EchoTimeoutMs.ToString();
+        WaitEchoCheck.IsChecked = profile.WaitForEcho;
+        AutoReconnectCheck.IsChecked = profile.AutoReconnect;
+        RawLogCheck.IsChecked = profile.RawLog;
         AutoLogCheck.IsChecked = profile.AutoLog;
         ConfirmPasteCheck.IsChecked = profile.ConfirmDangerousPaste;
         InitCommandsBox.Text = profile.InitCommands;
@@ -220,11 +226,37 @@ public partial class SessionEditorView : UserControl
             return;
         }
 
-        if (!int.TryParse(PasteDelayBox.Text.Trim(), out int delay) || delay < 0 || delay > 1000)
+        if (!int.TryParse(PasteDelayBox.Text.Trim(), out int delay) || delay < 0 || delay > 5000)
         {
-            ErrorText.Text = "粘贴延迟需在 0 - 1000 毫秒之间";
+            ErrorText.Text = "粘贴行延迟需在 0 - 5000 毫秒之间";
             PasteDelayBox.Focus();
             PasteDelayBox.SelectAll();
+            return;
+        }
+
+        if (!int.TryParse(BreakDurationBox.Text.Trim(), out int breakDuration) ||
+            breakDuration < 10 || breakDuration > 5000)
+        {
+            ErrorText.Text = "Break 脉冲需在 10 - 5000 毫秒之间";
+            BreakDurationBox.Focus();
+            BreakDurationBox.SelectAll();
+            return;
+        }
+
+        if (!int.TryParse(SendCharDelayBox.Text.Trim(), out int charDelay) || charDelay < 0 || charDelay > 1000)
+        {
+            ErrorText.Text = "字符延迟需在 0 - 1000 毫秒之间";
+            SendCharDelayBox.Focus();
+            SendCharDelayBox.SelectAll();
+            return;
+        }
+
+        if (!int.TryParse(EchoTimeoutBox.Text.Trim(), out int echoTimeout) ||
+            echoTimeout < 200 || echoTimeout > 60000)
+        {
+            ErrorText.Text = "回显超时需在 200 - 60000 毫秒之间";
+            EchoTimeoutBox.Focus();
+            EchoTimeoutBox.SelectAll();
             return;
         }
 
@@ -236,6 +268,7 @@ public partial class SessionEditorView : UserControl
         serial.Parity = (SerialParity)Math.Clamp(ParityBox.SelectedIndex, 0, 4);
         serial.StopBits = (SerialStopBits)Math.Clamp(StopBitsBox.SelectedIndex, 0, 2);
         serial.FlowControl = (SerialFlowControl)Math.Clamp(FlowBox.SelectedIndex, 0, 2);
+        serial.BreakDurationMs = breakDuration;
 
         var updated = _profile.Clone();
         updated.Name = name;
@@ -249,6 +282,11 @@ public partial class SessionEditorView : UserControl
         updated.AutoPaging = AutoPagingCheck.IsChecked == true;
         updated.ConfirmDangerousPaste = ConfirmPasteCheck.IsChecked == true;
         updated.PasteLineDelayMs = delay;
+        updated.SendCharDelayMs = charDelay;
+        updated.WaitForEcho = WaitEchoCheck.IsChecked == true;
+        updated.EchoTimeoutMs = echoTimeout;
+        updated.RawLog = RawLogCheck.IsChecked == true;
+        updated.AutoReconnect = AutoReconnectCheck.IsChecked == true;
         updated.InitCommands = InitCommandsBox.Text.Trim();
         updated.QuickCommands = _commands.ToList();
 
